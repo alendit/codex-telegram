@@ -1,6 +1,6 @@
 # codex-telegram
 
-[![Version](https://img.shields.io/badge/version-0.2.0-blue)](https://github.com/alendit/codex-telegram/releases/tag/v0.2.0)
+[![Version](https://img.shields.io/badge/version-0.3.0-blue)](https://github.com/alendit/codex-telegram/releases/tag/v0.3.0)
 [![Docker image](https://img.shields.io/badge/image-ghcr.io%2Falendit%2Fcodex--telegram%3A0.1.0-blue?logo=github)](https://github.com/alendit/codex-telegram/pkgs/container/codex-telegram)
 [![CI](https://github.com/alendit/codex-telegram/actions/workflows/ci.yml/badge.svg)](https://github.com/alendit/codex-telegram/actions/workflows/ci.yml)
 
