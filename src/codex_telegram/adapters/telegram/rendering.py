@@ -1081,10 +1081,6 @@ def render_help() -> str:
         lines.append(
             f"• <code>/{escape(command.command)}</code> - {escape(command.description)}"
         )
-    lines.append(
-        "<b>Aliases</b> /abort and /stop map to /interrupt; "
-        "/cd and /cwd map to /dir."
-    )
     return "\n".join(lines)
 
 

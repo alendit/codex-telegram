@@ -70,7 +70,7 @@ flowchart LR
 Product shape:
 
 - `BotService` is the application facade for turn-start orchestration, realtime,
-  project/directory command facades, and compatibility-facing application APIs.
+  project/directory command facades, and current application APIs.
 - `ConversationLifecycleService` owns durable conversation anchors, short-lived
   bridge windows, thread focus, anchor revival, Codex-thread attachment, and
   bridge expiry policy.
@@ -116,8 +116,7 @@ Product shape:
 - The app code must stay Codex-only and deployment-agnostic.
   `src/codex_telegram` does not own unrelated automation APIs or event schemas.
 - `ConversationAnchor` is the durable chat-to-Codex-thread binding. `BridgeThread`
-  is a short-lived Telegram presentation window over an anchor. `LogicalThread`
-  remains as a compatibility shape around bridge-window state.
+  is a short-lived Telegram presentation window over an anchor.
 - A thread's `codex_backend_id` pins work to one app-server connection. Project
   roots are scoped by backend connection, not by path alone.
 - App-server protocol payloads should terminate in
@@ -127,8 +126,8 @@ Product shape:
   pending requests, settings overrides, transcript snippets, project bindings,
   webhook subscriptions, callback tokens, progress/status cards, and attachment
   jobs. Codex conversation history remains app-server state.
-- Retained legacy paths, their owners, and their removal conditions are tracked
-  in `docs/compatibility.md`.
+- `docs/compatibility.md` records whether any explicit compatibility paths are
+  currently supported.
 - Logging is structured through `observability.py` with stable event names,
   top-level correlation fields, and object-shaped `v` payloads.
 
@@ -200,7 +199,7 @@ anchors, resolves user selectors, and expires idle bridge windows.
 
 This keeps anchor/bridge identity and expiry rules in one application-layer
 component. The service depends on a narrow `ConversationRepository` protocol.
-`BotService` preserves the existing public methods as a compatibility facade,
+`BotService` preserves the current public methods as the application facade,
 while turn start, realtime, webhooks, and command flows ask this service to
 resolve the target bridge.
 
@@ -210,7 +209,7 @@ resolve the target bridge.
 pending app-server approval and user-input requests. It reads and clears pending
 state through `ApprovalRepository`, sends normalized responses through
 `CodexBackend.resolve_server_request()`, and returns stable user-facing result
-messages to the Telegram adapter through `BotService`'s compatibility facade.
+messages to the Telegram adapter through `BotService`.
 
 This extraction gives approval/user-input resolution a clear application-layer
 owner without changing the Telegram-facing `BotService` API.
@@ -277,19 +276,18 @@ partial listing failures.
 
 ### Persistence Adapter
 
-`SQLiteStateRepository` owns the application database schema and migrations.
-The schema includes chats, anchors, bridge windows, legacy threads, overrides,
+`SQLiteStateRepository` owns the application database schema.
+The schema includes chats, anchors, bridge windows, overrides,
 pending approvals, pending user-input questions, transcript snippets, delivery
 watermarks, directories, attachment jobs, projects, project overrides, webhook
 subscriptions, webhook delivery idempotency, and callback tokens. A separate
 `SQLiteTelegramProgressStore` persists Telegram progress, final-message, and
 status-card mappings.
 
-The adapter is async through `aiosqlite` and keeps schema compatibility logic in
-one place. It structurally satisfies the service-owned repository protocols
-introduced by extracted application services, while the broader
-`StateRepository` still exists for remaining `BotService` facade responsibilities
-and legacy call sites.
+The adapter is async through `aiosqlite` and targets the current schema directly.
+It structurally satisfies the service-owned repository protocols introduced by
+extracted application services, while the broader `StateRepository` still exists
+for remaining `BotService` facade responsibilities.
 
 ### Telegram Adapter
 
@@ -439,8 +437,8 @@ Update this document when any change alters:
 - `DirectoryResolver` semantics
 - app-server websocket method mapping or server-request handling
 - Telegram command ownership or status/progress delivery architecture
-- SQLite schema ownership or migration compatibility expectations
-- retained compatibility paths listed in `docs/compatibility.md`
+- SQLite schema ownership expectations
+- compatibility expectations listed in `docs/compatibility.md`
 - deployment state layout, sidecar topology, or live runtime source of truth
 
 ## Architecture Discussion
@@ -478,8 +476,8 @@ Confirmed alignment with the guidance:
   rather than living inside the long-polling runner.
 - Telegram status-card synchronization now has a dedicated adapter module rather
   than living inside the long-polling runner.
-- Retained compatibility paths now have explicit owner, rationale, and removal
-  conditions in `docs/compatibility.md`.
+- Compatibility policy is explicit in `docs/compatibility.md`; no retained paths
+  are currently supported.
 - Directory and Project command filesystem validation now goes through a
   `DirectoryResolver` port with a local filesystem adapter.
 - Unsupported, malformed, or contextless app-server server requests now get
@@ -496,19 +494,18 @@ Confirmed alignment with the guidance:
 
 Confirmed gaps and risks:
 
-- `BotService` is still a broad workflow facade for turn start, realtime,
-  project/directory commands, and compatibility APIs. Its coupling is lower than
-  before, but it remains the main coordination point.
-- The remaining `StateRepository` is still broad for `BotService` facade and
-  legacy call sites, but it is no longer the semantic interface for every
-  extracted application service.
+- `BotService` is still a broad workflow facade for turn start, realtime, and
+  project/directory commands. Its coupling is lower than before, but it remains
+  the main coordination point.
+- The remaining `StateRepository` is still broad for `BotService` facade call
+  sites, but it is no longer the semantic interface for every extracted
+  application service.
 - `TelegramBotRunner` is a large shell module that combines Telegram IO,
   realtime event consumption, background workers, and message/control-flow
   behavior.
-- Compatibility paths remain significant: profile aliases, legacy thread
-  migration, legacy `LogicalThread`, workspace-to-project migration, and command
-  aliases. They are documented now, but cleanup still depends on deployed-state
-  evidence or an explicit removal decision.
+- The previous retained compatibility paths were removed after an explicit
+  clean-break decision; future compatibility work should be added only when a
+  current requirement is documented with owner and removal criteria.
 
 No immediate remediation candidates remain from this evaluation pass. The
 residual broadness above is tracked as architecture context, not as a currently

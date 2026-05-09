@@ -360,7 +360,7 @@ class TelegramCommandExecutor:
             return await self._handle_plan(context, thread_id, argument)
         if name == "implement":
             return await self._handle_implement(context, thread_id, argument)
-        if name in {"interrupt", "abort", "stop"}:
+        if name == "interrupt":
             await host._send_text(
                 context,
                 await host._service.interrupt_active_turn(context.chat_key),
@@ -368,13 +368,7 @@ class TelegramCommandExecutor:
             return True
         if name == "realtime":
             return await self._handle_realtime(context, thread_id, argument)
-        if name in {"backends", "select_backend", "select-backend"}:
-            await host._send_text(
-                context,
-                "This bot is Codex-only. Backend switching is not supported here.",
-            )
-            return True
-        if name in {"resetparams", "clearparams"}:
+        if name == "resetparams":
             settings = await host._service.clear_overrides(thread_id)
             await host._send_text(
                 context,
@@ -382,7 +376,7 @@ class TelegramCommandExecutor:
                 parse_mode="HTML",
             )
             return True
-        if name in {"dir", "cd", "cwd"}:
+        if name == "dir":
             try:
                 if not argument:
                     state = await host._service.show_directory_state(context.chat_key)

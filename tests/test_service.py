@@ -29,6 +29,7 @@ from codex_telegram.config import (
     WebhookConfig,
 )
 from codex_telegram.domain import (
+    BridgeThread,
     CodexGoal,
     CodexThread,
     LogicalThread,
@@ -163,6 +164,64 @@ class _BackendWithFriendlyNames:
         return backend_name or "primary"
 
 
+def _bridge_thread(
+    *,
+    bridge_id: str = "thread-1",
+    chat_key: str = "chat:1",
+    title: str = "Thread",
+    codex_thread_id: str | None = "codex-1",
+    turn_count: int = 0,
+    awaiting_reply: bool = False,
+    interrupted_notice: bool = False,
+    pending_turn_id: str | None = None,
+    codex_backend_id: str = "primary",
+    anchor_id: str | None = None,
+) -> BridgeThread:
+    return BridgeThread(
+        bridge_id=bridge_id,
+        chat_key=chat_key,
+        title=title,
+        anchor_id=anchor_id,
+        codex_thread_id=codex_thread_id,
+        created_at="2026-05-09T00:00:00+00:00",
+        updated_at="2026-05-09T00:00:00+00:00",
+        turn_count=turn_count,
+        awaiting_reply=awaiting_reply,
+        interrupted_notice=interrupted_notice,
+        pending_turn_id=pending_turn_id,
+        codex_backend_id=codex_backend_id,
+    )
+
+
+def _logical_thread(
+    *,
+    thread_id: str = "thread-1",
+    chat_key: str = "chat:1",
+    title: str = "Thread",
+    codex_thread_id: str | None = "codex-1",
+    turn_count: int = 0,
+    awaiting_reply: bool = False,
+    interrupted_notice: bool = False,
+    pending_turn_id: str | None = None,
+    codex_backend_id: str = "primary",
+    anchor_id: str | None = None,
+) -> LogicalThread:
+    return LogicalThread(
+        thread_id=thread_id,
+        chat_key=chat_key,
+        title=title,
+        codex_thread_id=codex_thread_id,
+        created_at="2026-05-09T00:00:00+00:00",
+        updated_at="2026-05-09T00:00:00+00:00",
+        turn_count=turn_count,
+        awaiting_reply=awaiting_reply,
+        interrupted_notice=interrupted_notice,
+        pending_turn_id=pending_turn_id,
+        codex_backend_id=codex_backend_id,
+        anchor_id=anchor_id,
+    )
+
+
 @pytest.mark.asyncio
 async def test_interrupt_active_turn_requests_backend_interrupt() -> None:
     repository = AsyncMock()
@@ -222,13 +281,7 @@ async def test_interrupt_active_turn_handles_missing_active_turn() -> None:
 async def test_run_turn_steers_same_thread_followup_without_starting_new_turn() -> None:
     repository = AsyncMock()
     client = AsyncMock()
-    repository.get_active_thread.return_value = LogicalThread(
-        thread_id="thread-1",
-        chat_key="chat:1",
-        title="Thread",
-        codex_thread_id="codex-1",
-        created_at="now",
-        updated_at="now",
+    repository.get_focused_bridge.return_value = _bridge_thread(
         turn_count=2,
         awaiting_reply=True,
         interrupted_notice=False,
@@ -268,17 +321,15 @@ async def test_run_turn_steers_same_thread_followup_without_starting_new_turn() 
 async def test_list_skills_uses_effective_thread_cwd_and_filters_search() -> None:
     repository = AsyncMock()
     client = AsyncMock()
-    repository.get_active_thread.return_value = LogicalThread(
-        thread_id="thread-1",
-        chat_key="chat:1",
-        title="Thread",
-        codex_thread_id="codex-1",
-        created_at="now",
-        updated_at="now",
+    repository.get_focused_bridge.return_value = _bridge_thread(
         turn_count=2,
         awaiting_reply=False,
         interrupted_notice=False,
         pending_turn_id=None,
+        codex_backend_id="laptop",
+    )
+    repository.get_thread.return_value = _logical_thread(
+        turn_count=2,
         codex_backend_id="laptop",
     )
     repository.get_overrides.return_value = SessionOverrides(cwd="/agent/app")
@@ -327,19 +378,15 @@ async def test_list_skills_uses_default_directory_when_thread_has_no_cwd() -> No
     client = AsyncMock()
     directory_resolver = AsyncMock()
     directory_resolver.default_base_path.return_value = "/agent"
-    repository.get_active_thread.return_value = LogicalThread(
-        thread_id="thread-1",
-        chat_key="chat:1",
-        title="Thread",
+    repository.get_focused_bridge.return_value = _bridge_thread(
         codex_thread_id=None,
-        created_at="now",
-        updated_at="now",
         turn_count=0,
         awaiting_reply=False,
         interrupted_notice=False,
         pending_turn_id=None,
         codex_backend_id="primary",
     )
+    repository.get_thread.return_value = _logical_thread(codex_thread_id=None)
     repository.get_overrides.return_value = SessionOverrides()
     repository.get_thread_project.return_value = None
     client.list_skills.return_value = [
@@ -381,17 +428,16 @@ async def test_list_skills_prefers_default_project_over_local_app_cwd() -> None:
     client = AsyncMock()
     directory_resolver = AsyncMock()
     directory_resolver.default_base_path.return_value = "/app"
-    repository.get_active_thread.return_value = LogicalThread(
-        thread_id="thread-1",
-        chat_key="chat:1",
-        title="Thread",
+    repository.get_focused_bridge.return_value = _bridge_thread(
         codex_thread_id=None,
-        created_at="now",
-        updated_at="now",
         turn_count=0,
         awaiting_reply=False,
         interrupted_notice=False,
         pending_turn_id=None,
+        codex_backend_id="laptop",
+    )
+    repository.get_thread.return_value = _logical_thread(
+        codex_thread_id=None,
         codex_backend_id="laptop",
     )
     repository.get_overrides.return_value = SessionOverrides()
@@ -433,13 +479,7 @@ async def test_list_skills_prefers_default_project_over_local_app_cwd() -> None:
 async def test_run_skill_turn_resolves_slug_and_routes_skill_input() -> None:
     repository = AsyncMock()
     client = AsyncMock()
-    repository.get_active_thread.return_value = LogicalThread(
-        thread_id="thread-1",
-        chat_key="chat:1",
-        title="Thread",
-        codex_thread_id="codex-1",
-        created_at="now",
-        updated_at="now",
+    repository.get_focused_bridge.return_value = _bridge_thread(
         turn_count=2,
         awaiting_reply=True,
         interrupted_notice=False,
@@ -956,12 +996,20 @@ async def test_run_turn_keeps_idle_thread_with_enabled_webhook(
     await repository.initialize()
 
     original = await service.ensure_active_thread("chat:1")
+    await repository.update_codex_thread_binding(
+        original.thread_id,
+        "codex-1",
+        codex_backend_id="primary",
+    )
+    anchored = await repository.get_thread(original.thread_id)
+    assert anchored is not None
+    assert anchored.anchor_id is not None
     await repository.mark_turn_started(original.thread_id, "turn-old")
     await repository.mark_turn_completed(original.thread_id)
     await repository.create_webhook_subscription(
         webhook_id="wh_123",
         chat_key="chat:1",
-        thread_id=original.thread_id,
+        anchor_id=anchored.anchor_id,
         name="front-door",
         secret_hash="hash-1",
     )

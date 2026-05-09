@@ -12,7 +12,6 @@ from codex_telegram.application.profiles import (
     COMMAND_VERBOSITY_VALUES,
     FOLLOWUP_MODE_VALUES,
     VERBOSITY_VALUES,
-    canonical_profile_name,
     default_profile_for_chat,
     resolve_profile,
 )
@@ -128,10 +127,10 @@ class RuntimeSettingsService:
         """Update one runtime override and return effective settings."""
         overrides = await self._repository.get_overrides(thread_id)
         if field_name == "profile" and value is not None:
-            canonical = canonical_profile_name(value.strip())
-            if canonical not in self._policy.profiles:
+            profile_name = value.strip()
+            if profile_name not in self._policy.profiles:
                 raise ValueError(f"Unknown profile: {value}")
-            overrides = overrides.with_value("profile", canonical)
+            overrides = overrides.with_value("profile", profile_name)
         elif field_name == "verbosity" and value is not None:
             if value not in VERBOSITY_VALUES:
                 raise ValueError(f"Unknown verbosity: {value}")
@@ -194,7 +193,7 @@ class RuntimeSettingsService:
         effective_overrides = await self.effective_overrides(thread_id, overrides)
         model = effective_overrides.model or profile.model
         return EffectiveSettings(
-            profile=canonical_profile_name(overrides.profile or profile.name),
+            profile=overrides.profile or profile.name,
             model=model,
             model_provider=_resolve_model_provider_name(model, profile.model_provider),
             effort=effective_overrides.effort or profile.effort,

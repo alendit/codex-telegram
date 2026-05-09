@@ -1,12 +1,11 @@
 from codex_telegram.application.profiles import (
     build_profiles,
-    canonical_profile_name,
     default_profile_for_chat,
 )
 from codex_telegram.config import load_config
 
 
-def test_profile_aliases_are_available() -> None:
+def test_profiles_use_configured_names_only() -> None:
     config = load_config(
         env={
             "TELEGRAM_BOT_TOKEN": "token",
@@ -20,6 +19,8 @@ def test_profile_aliases_are_available() -> None:
 
     assert "readonly" in profiles
     assert (
-        default_profile_for_chat(config.client_default_profiles, "chat:example", "operator")
+        default_profile_for_chat(
+            config.client_default_profiles, "chat:example", "operator"
+        )
         == "operator"
     )

@@ -1,6 +1,5 @@
 from pathlib import Path
 from datetime import UTC, datetime, timedelta
-import sqlite3
 
 import pytest
 
@@ -12,7 +11,6 @@ from codex_telegram.adapters.persistence.sqlite import (
 from codex_telegram.domain import (
     PendingApproval,
     PendingUserInput,
-    Project,
     UserInputOption,
     UserInputQuestion,
     SessionOverrides,
@@ -230,164 +228,6 @@ async def test_conversation_anchor_includes_matching_latest_bridge_pending_state
 
 
 @pytest.mark.asyncio
-async def test_repository_migrates_legacy_threads_to_anchors_and_bridges(
-    tmp_path: Path,
-) -> None:
-    db_path = tmp_path / "state.db"
-    with sqlite3.connect(db_path) as db:
-        db.executescript("""
-            CREATE TABLE chats (
-                chat_key TEXT PRIMARY KEY,
-                active_thread_id TEXT,
-                previous_thread_id TEXT,
-                updated_at TEXT NOT NULL
-            );
-            CREATE TABLE threads (
-                thread_id TEXT PRIMARY KEY,
-                chat_key TEXT NOT NULL,
-                title TEXT NOT NULL,
-                codex_thread_id TEXT,
-                codex_backend_id TEXT NOT NULL DEFAULT 'primary',
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                turn_count INTEGER NOT NULL DEFAULT 0,
-                awaiting_reply INTEGER NOT NULL DEFAULT 0,
-                interrupted_notice INTEGER NOT NULL DEFAULT 0,
-                pending_turn_id TEXT
-            );
-            CREATE TABLE webhook_subscriptions (
-                webhook_id TEXT PRIMARY KEY,
-                chat_key TEXT NOT NULL,
-                thread_id TEXT NOT NULL,
-                name TEXT NOT NULL,
-                secret_hash TEXT NOT NULL,
-                enabled INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                trigger_count INTEGER NOT NULL DEFAULT 0,
-                last_triggered_at TEXT
-            );
-            INSERT INTO chats(chat_key, active_thread_id, previous_thread_id, updated_at)
-            VALUES ('chat:1', 'thread-1', NULL, '2026-05-04T00:00:00+00:00');
-            INSERT INTO threads(
-                thread_id, chat_key, title, codex_thread_id, codex_backend_id,
-                created_at, updated_at, turn_count, awaiting_reply,
-                interrupted_notice, pending_turn_id
-            ) VALUES
-                (
-                    'thread-1', 'chat:1', 'Bound', 'codex-1', 'laptop',
-                    '2026-05-04T00:00:00+00:00', '2026-05-04T00:00:00+00:00',
-                    1, 0, 0, NULL
-                ),
-                (
-                    'thread-2', 'chat:1', 'Unbound', NULL, 'laptop',
-                    '2026-05-04T00:00:00+00:00', '2026-05-04T00:00:00+00:00',
-                    0, 0, 0, NULL
-                );
-            INSERT INTO webhook_subscriptions(
-                webhook_id, chat_key, thread_id, name, secret_hash, enabled,
-                created_at, updated_at, trigger_count, last_triggered_at
-            ) VALUES
-                (
-                    'wh_bound', 'chat:1', 'thread-1', 'ci', 'hash', 1,
-                    '2026-05-04T00:00:00+00:00', '2026-05-04T00:00:00+00:00',
-                    0, NULL
-                ),
-                (
-                    'wh_unbound', 'chat:1', 'thread-2', 'scratch', 'hash', 1,
-                    '2026-05-04T00:00:00+00:00', '2026-05-04T00:00:00+00:00',
-                    0, NULL
-                );
-        """)
-
-    repo = SQLiteStateRepository(db_path)
-    await repo.initialize()
-
-    focused = await repo.get_focused_bridge("chat:1")
-    anchors = await repo.list_conversation_anchors("chat:1")
-    subscriptions = await repo.list_webhook_subscriptions(
-        chat_key="chat:1",
-        include_disabled=True,
-    )
-
-    assert focused is not None
-    assert focused.bridge_id == "thread-1"
-    assert [
-        (anchor.codex_backend_id, anchor.codex_thread_id) for anchor in anchors
-    ] == [("laptop", "codex-1")]
-    by_id = {subscription.webhook_id: subscription for subscription in subscriptions}
-    assert by_id["wh_bound"].anchor_id == anchors[0].anchor_id
-    assert by_id["wh_bound"].enabled is True
-    assert by_id["wh_unbound"].anchor_id is None
-    assert by_id["wh_unbound"].enabled is False
-
-
-@pytest.mark.asyncio
-async def test_repository_migrates_legacy_overrides_table(tmp_path: Path) -> None:
-    db_path = tmp_path / "state.db"
-    with sqlite3.connect(db_path) as db:
-        db.executescript("""
-            CREATE TABLE overrides (
-                thread_id TEXT PRIMARY KEY,
-                profile TEXT,
-                model TEXT,
-                effort TEXT,
-                summary TEXT,
-                cwd TEXT
-            );
-            """)
-
-    repo = SQLiteStateRepository(db_path)
-    await repo.initialize()
-    overrides = SessionOverrides(
-        effort="high",
-        verbosity="verbose",
-        command_verbosity="errors",
-        followup_mode="steer",
-    )
-
-    await repo.upsert_overrides("thread-1", overrides)
-    loaded = await repo.get_overrides("thread-1")
-
-    assert loaded.effort == "high"
-    assert loaded.verbosity == "verbose"
-    assert loaded.command_verbosity == "errors"
-    assert loaded.followup_mode == "steer"
-    assert loaded.collaboration_mode is None
-
-
-@pytest.mark.asyncio
-async def test_repository_migrates_legacy_non_nullable_fast_mode(
-    tmp_path: Path,
-) -> None:
-    db_path = tmp_path / "state.db"
-    with sqlite3.connect(db_path) as db:
-        db.executescript("""
-            CREATE TABLE overrides (
-                thread_id TEXT PRIMARY KEY,
-                profile TEXT,
-                model TEXT,
-                effort TEXT,
-                summary TEXT,
-                cwd TEXT,
-                fast_mode INTEGER NOT NULL DEFAULT 0
-            );
-            """)
-
-    repo = SQLiteStateRepository(db_path)
-    await repo.initialize()
-
-    await repo.upsert_overrides(
-        "thread-1",
-        SessionOverrides(model="gpt-5.4-mini"),
-    )
-    loaded = await repo.get_overrides("thread-1")
-
-    assert loaded.model == "gpt-5.4-mini"
-    assert loaded.fast_mode is None
-
-
-@pytest.mark.asyncio
 async def test_repository_projects_are_unique_by_connection_and_root(
     tmp_path: Path,
 ) -> None:
@@ -459,65 +299,6 @@ async def test_repository_persists_project_fast_mode_override(
     assert loaded.model == "gpt-5.4-mini"
     assert loaded.effort == "high"
     assert loaded.fast_mode is False
-
-
-@pytest.mark.asyncio
-async def test_repository_migrates_workspace_tables_to_primary_connection_projects(
-    tmp_path: Path,
-) -> None:
-    db_path = tmp_path / "state.db"
-    with sqlite3.connect(db_path) as db:
-        db.executescript("""
-            CREATE TABLE thread_workspaces (
-                thread_id TEXT PRIMARY KEY,
-                chat_key TEXT NOT NULL,
-                root_path TEXT NOT NULL,
-                label TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            CREATE TABLE workspace_catalog (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                chat_key TEXT NOT NULL,
-                root_path TEXT NOT NULL,
-                label TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            INSERT INTO thread_workspaces(
-                thread_id, chat_key, root_path, label, updated_at
-            ) VALUES (
-                'thread-1', 'chat:1', '/agent/project-a', 'old-a', '2026-01-01'
-            );
-            INSERT INTO workspace_catalog(chat_key, root_path, label, updated_at)
-            VALUES ('chat:1', '/agent/project-b', 'old-b', '2026-01-02');
-            """)
-
-    repo = SQLiteStateRepository(db_path, default_backend_id="home")
-    await repo.initialize()
-
-    projects = await repo.list_projects()
-    bound = await repo.get_thread_project("thread-1")
-    with sqlite3.connect(db_path) as db:
-        old_tables = {
-            row[0]
-            for row in db.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            ).fetchall()
-        }
-
-    assert [(item.connection_id, item.root_path, item.label) for item in projects] == [
-        ("home", "/agent/project-b", "old-b"),
-        ("home", "/agent/project-a", "old-a"),
-    ]
-    assert bound == Project(
-        project_id=bound.project_id if bound else "",
-        connection_id="home",
-        root_path="/agent/project-a",
-        label="old-a",
-        created_at=bound.created_at if bound else "",
-        updated_at=bound.updated_at if bound else "",
-    )
-    assert "thread_workspaces" not in old_tables
-    assert "workspace_catalog" not in old_tables
 
 
 @pytest.mark.asyncio
@@ -730,85 +511,6 @@ async def test_repository_round_trips_thread_messages(tmp_path: Path) -> None:
 
     assert [entry.role for entry in entries] == ["user", "assistant"]
     assert entries[1].turn_id == "turn-1"
-
-
-@pytest.mark.asyncio
-async def test_repository_migrates_delivery_watermark_to_message_bridge(
-    tmp_path: Path,
-) -> None:
-    db_path = tmp_path / "state.db"
-    repo = SQLiteStateRepository(db_path)
-    await repo.initialize()
-    anchor = await repo.upsert_conversation_anchor(
-        chat_key="chat:1",
-        codex_backend_id="primary",
-        codex_thread_id="codex-1",
-        title="Existing Codex thread",
-    )
-    await repo.create_bridge(
-        chat_key="chat:1",
-        bridge_id="bridge-1",
-        title="Existing Codex thread",
-        anchor_id=anchor.anchor_id,
-        codex_backend_id="primary",
-    )
-    await repo.add_thread_message(
-        "bridge-1",
-        role="assistant",
-        kind="final",
-        text="older bridge answer",
-    )
-    await repo.create_bridge(
-        chat_key="chat:1",
-        bridge_id="bridge-2",
-        title="Existing Codex thread",
-        anchor_id=anchor.anchor_id,
-        codex_backend_id="primary",
-    )
-    await repo.add_thread_message(
-        "bridge-2",
-        role="assistant",
-        kind="final",
-        text="newer bridge answer",
-    )
-    with sqlite3.connect(db_path) as db:
-        second_message_id = db.execute(
-            "SELECT MAX(id) FROM thread_messages WHERE thread_id = 'bridge-2'"
-        ).fetchone()[0]
-        db.execute("DROP TABLE thread_delivery_watermarks")
-        db.execute("""
-            CREATE TABLE thread_delivery_watermarks (
-                chat_key TEXT NOT NULL,
-                anchor_id TEXT NOT NULL,
-                last_message_id INTEGER NOT NULL DEFAULT 0,
-                updated_at TEXT NOT NULL,
-                PRIMARY KEY(chat_key, anchor_id)
-            )
-        """)
-        db.execute(
-            """
-            INSERT INTO thread_delivery_watermarks(
-                chat_key, anchor_id, last_message_id, updated_at
-            ) VALUES (?, ?, ?, ?)
-            """,
-            ("chat:1", anchor.anchor_id, second_message_id, "now"),
-        )
-
-    await repo.initialize()
-
-    first_entries = await repo.list_undelivered_final_thread_messages(
-        chat_key="chat:1",
-        anchor_id=anchor.anchor_id,
-        thread_id="bridge-1",
-    )
-    second_entries = await repo.list_undelivered_final_thread_messages(
-        chat_key="chat:1",
-        anchor_id=anchor.anchor_id,
-        thread_id="bridge-2",
-    )
-
-    assert [entry.text for entry in first_entries] == ["older bridge answer"]
-    assert second_entries == []
 
 
 @pytest.mark.asyncio

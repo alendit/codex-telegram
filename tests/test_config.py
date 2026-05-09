@@ -178,7 +178,7 @@ def test_sample_config_uses_60_minute_active_waiting_window() -> None:
     assert config.telegram.active_waiting_ttl_seconds == 3600.0
 
 
-def test_load_config_keeps_legacy_idle_key_as_focus_timeout(tmp_path: Path) -> None:
+def test_load_config_does_not_map_bridge_ttl_to_focus_timeout(tmp_path: Path) -> None:
     config_path = tmp_path / "codex_telegram.toml"
     config_path.write_text(
         """
@@ -212,7 +212,7 @@ network_access = false
         },
     )
 
-    assert config.telegram.focus_timeout_seconds == 120.0
+    assert config.telegram.focus_timeout_seconds == 900.0
     assert config.telegram.active_waiting_ttl_seconds == 3600.0
 
 

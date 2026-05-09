@@ -236,7 +236,6 @@ class SQLiteStateRepository:
                 CREATE TABLE IF NOT EXISTS webhook_subscriptions (
                     webhook_id TEXT PRIMARY KEY,
                     chat_key TEXT NOT NULL,
-                    thread_id TEXT,
                     anchor_id TEXT,
                     name TEXT NOT NULL,
                     secret_hash TEXT NOT NULL,
@@ -257,9 +256,6 @@ class SQLiteStateRepository:
                 CREATE INDEX IF NOT EXISTS idx_webhook_subscriptions_chat
                     ON webhook_subscriptions(chat_key, enabled);
 
-                CREATE INDEX IF NOT EXISTS idx_webhook_subscriptions_thread
-                    ON webhook_subscriptions(thread_id, enabled);
-
                 CREATE INDEX IF NOT EXISTS idx_bridge_threads_chat
                     ON bridge_threads(chat_key, updated_at);
 
@@ -279,55 +275,14 @@ class SQLiteStateRepository:
                 CREATE INDEX IF NOT EXISTS idx_callback_tokens_expires
                     ON callback_tokens(expires_at);
                 """)
-            await self._migrate_legacy_workspace_tables(db)
-            await _ensure_thread_delivery_watermarks_thread_scoped(db)
-            await _ensure_column(
-                db,
-                table_name="chats",
-                column_name="focused_bridge_id",
-                definition="TEXT",
-            )
-            for column_name, definition in (
-                ("codex_backend_id", "TEXT NOT NULL DEFAULT 'primary'"),
-                ("anchor_id", "TEXT"),
-                ("expires_at", "TEXT"),
-                ("closed_at", "TEXT"),
-            ):
-                await _ensure_column(
-                    db,
-                    table_name="threads",
-                    column_name=column_name,
-                    definition=definition,
-                )
             await db.execute(
                 "UPDATE threads SET codex_backend_id = ? WHERE codex_backend_id = 'primary'",
                 (self._default_backend_id,),
             )
-            for column_name, definition in (
-                ("thread_id", "TEXT"),
-                ("anchor_id", "TEXT"),
-            ):
-                await _ensure_column(
-                    db,
-                    table_name="webhook_subscriptions",
-                    column_name=column_name,
-                    definition=definition,
-                )
             await db.execute("""
                 CREATE INDEX IF NOT EXISTS idx_webhook_subscriptions_anchor
                     ON webhook_subscriptions(anchor_id, enabled)
             """)
-            await self._migrate_legacy_threads_to_anchors_and_bridges(db)
-            for column_name, definition in (
-                ("codex_backend_id", "TEXT NOT NULL DEFAULT 'primary'"),
-                ("approval_message", "TEXT"),
-            ):
-                await _ensure_column(
-                    db,
-                    table_name="pending_requests",
-                    column_name=column_name,
-                    definition=definition,
-                )
             await db.execute(
                 """
                 UPDATE pending_requests
@@ -336,15 +291,6 @@ class SQLiteStateRepository:
                 """,
                 (self._default_backend_id,),
             )
-            for column_name, definition in (
-                ("codex_backend_id", "TEXT NOT NULL DEFAULT 'primary'"),
-            ):
-                await _ensure_column(
-                    db,
-                    table_name="pending_user_inputs",
-                    column_name=column_name,
-                    definition=definition,
-                )
             await db.execute(
                 """
                 UPDATE pending_user_inputs
@@ -353,284 +299,13 @@ class SQLiteStateRepository:
                 """,
                 (self._default_backend_id,),
             )
-            for column_name, definition in (
-                ("fast_mode", "INTEGER"),
-                ("fast_mode_is_set", "INTEGER NOT NULL DEFAULT 0"),
-            ):
-                await _ensure_column(
-                    db,
-                    table_name="project_overrides",
-                    column_name=column_name,
-                    definition=definition,
-                )
-            for column_name, definition in (
-                ("fast_mode", "INTEGER"),
-                ("fast_mode_is_set", "INTEGER NOT NULL DEFAULT 0"),
-                ("verbosity", "TEXT"),
-                ("command_verbosity", "TEXT"),
-                ("followup_mode", "TEXT"),
-                ("collaboration_mode", "TEXT"),
-            ):
-                await _ensure_column(
-                    db,
-                    table_name="overrides",
-                    column_name=column_name,
-                    definition=definition,
-                )
-            await _ensure_overrides_fast_mode_nullable(db)
             await db.execute("""
                 UPDATE overrides
                    SET fast_mode_is_set = 1
                  WHERE fast_mode IS NOT NULL
                    AND fast_mode_is_set = 0
-                """)
-            await db.commit()
-
-    async def _migrate_legacy_workspace_tables(self, db: aiosqlite.Connection) -> None:
-        """Move old workspace rows into connection-scoped Projects."""
-        has_thread_workspaces = await _table_exists(db, "thread_workspaces")
-        has_workspace_catalog = await _table_exists(db, "workspace_catalog")
-        if has_workspace_catalog:
-            rows = await (
-                await db.execute(
-                    "SELECT root_path, label, updated_at FROM workspace_catalog"
-                )
-            ).fetchall()
-            for root_path, label, updated_at in rows:
-                await db.execute(
-                    """
-                    INSERT INTO projects(
-                        project_id, connection_id, root_path, label,
-                        created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(connection_id, root_path) DO UPDATE SET
-                        label=excluded.label,
-                        updated_at=excluded.updated_at
-                    """,
-                    (
-                        secrets.token_hex(8),
-                        self._default_backend_id,
-                        root_path,
-                        label,
-                        updated_at,
-                        updated_at,
-                    ),
-                )
-        if has_thread_workspaces:
-            rows = await (await db.execute("""
-                    SELECT thread_id, root_path, label, updated_at
-                      FROM thread_workspaces
-                    """)).fetchall()
-            for thread_id, root_path, label, updated_at in rows:
-                await db.execute(
-                    """
-                    INSERT INTO projects(
-                        project_id, connection_id, root_path, label,
-                        created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(connection_id, root_path) DO UPDATE SET
-                        label=excluded.label,
-                        updated_at=excluded.updated_at
-                    """,
-                    (
-                        secrets.token_hex(8),
-                        self._default_backend_id,
-                        root_path,
-                        label,
-                        updated_at,
-                        updated_at,
-                    ),
-                )
-                project = await (
-                    await db.execute(
-                        """
-                        SELECT project_id
-                          FROM projects
-                         WHERE connection_id = ? AND root_path = ?
-                        """,
-                        (self._default_backend_id, root_path),
-                    )
-                ).fetchone()
-                assert project is not None
-                await db.execute(
-                    """
-                    INSERT INTO thread_projects(thread_id, project_id, updated_at)
-                    VALUES (?, ?, ?)
-                    ON CONFLICT(thread_id) DO UPDATE SET
-                        project_id=excluded.project_id,
-                        updated_at=excluded.updated_at
-                    """,
-                    (thread_id, project[0], updated_at),
-                )
-        if has_thread_workspaces:
-            await db.execute("DROP TABLE thread_workspaces")
-        if has_workspace_catalog:
-            await db.execute("DROP TABLE workspace_catalog")
-
-    async def _migrate_legacy_threads_to_anchors_and_bridges(
-        self, db: aiosqlite.Connection
-    ) -> None:
-        """Populate anchor/bridge tables from the older logical-thread table."""
-        db.row_factory = aiosqlite.Row
-        rows = await (await db.execute("""
-                SELECT thread_id, chat_key, anchor_id, title, codex_thread_id,
-                       codex_backend_id, created_at, updated_at, turn_count,
-                       awaiting_reply, interrupted_notice, pending_turn_id,
-                       expires_at, closed_at
-                  FROM threads
-                """)).fetchall()
-        bridge_count = await (
-            await db.execute("SELECT COUNT(*) FROM bridge_threads")
-        ).fetchone()
-        if rows and bridge_count is not None and int(bridge_count[0]) == 0:
-            for row in rows:
-                anchor_id = row["anchor_id"]
-                if row["codex_thread_id"] and not anchor_id:
-                    anchor_id = await self._ensure_anchor_row(
-                        db,
-                        chat_key=str(row["chat_key"]),
-                        codex_backend_id=str(row["codex_backend_id"]),
-                        codex_thread_id=str(row["codex_thread_id"]),
-                        title=str(row["title"]),
-                        latest_bridge_id=str(row["thread_id"]),
-                        created_at=str(row["created_at"]),
-                        updated_at=str(row["updated_at"]),
-                    )
-                await db.execute(
-                    """
-                    INSERT OR IGNORE INTO bridge_threads(
-                        bridge_id, chat_key, anchor_id, title, codex_thread_id,
-                        codex_backend_id, created_at, updated_at, turn_count,
-                        awaiting_reply, interrupted_notice, pending_turn_id,
-                        expires_at, closed_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        row["thread_id"],
-                        row["chat_key"],
-                        anchor_id,
-                        row["title"],
-                        row["codex_thread_id"],
-                        row["codex_backend_id"],
-                        row["created_at"],
-                        row["updated_at"],
-                        row["turn_count"],
-                        row["awaiting_reply"],
-                        row["interrupted_notice"],
-                        row["pending_turn_id"],
-                        row["expires_at"],
-                        row["closed_at"],
-                    ),
-                )
-                if anchor_id:
-                    await db.execute(
-                        """
-                        UPDATE threads
-                           SET anchor_id = ?
-                         WHERE thread_id = ?
-                        """,
-                        (anchor_id, row["thread_id"]),
-                    )
-        await db.execute("""
-            UPDATE chats
-               SET focused_bridge_id = COALESCE(focused_bridge_id, active_thread_id)
             """)
-        webhook_rows = await (await db.execute("""
-                SELECT webhook_id, thread_id, anchor_id
-                  FROM webhook_subscriptions
-                """)).fetchall()
-        for row in webhook_rows:
-            if row["anchor_id"]:
-                continue
-            bridge = await (
-                await db.execute(
-                    """
-                    SELECT anchor_id
-                      FROM bridge_threads
-                     WHERE bridge_id = ?
-                    """,
-                    (row["thread_id"],),
-                )
-            ).fetchone()
-            if bridge is not None and bridge["anchor_id"]:
-                await db.execute(
-                    """
-                    UPDATE webhook_subscriptions
-                       SET anchor_id = ?
-                     WHERE webhook_id = ?
-                    """,
-                    (bridge["anchor_id"], row["webhook_id"]),
-                )
-            else:
-                await db.execute(
-                    """
-                    UPDATE webhook_subscriptions
-                       SET enabled = 0,
-                           updated_at = ?
-                     WHERE webhook_id = ?
-                    """,
-                    (utcnow(), row["webhook_id"]),
-                )
-
-    async def _ensure_anchor_row(
-        self,
-        db: aiosqlite.Connection,
-        *,
-        chat_key: str,
-        codex_backend_id: str,
-        codex_thread_id: str,
-        title: str,
-        latest_bridge_id: str | None,
-        created_at: str,
-        updated_at: str,
-    ) -> str:
-        existing = await (
-            await db.execute(
-                """
-                SELECT anchor_id
-                  FROM conversation_anchors
-                 WHERE chat_key = ?
-                   AND codex_backend_id = ?
-                   AND codex_thread_id = ?
-                """,
-                (chat_key, codex_backend_id, codex_thread_id),
-            )
-        ).fetchone()
-        if existing is not None:
-            anchor_id = str(existing["anchor_id"])
-            await db.execute(
-                """
-                UPDATE conversation_anchors
-                   SET latest_bridge_id = COALESCE(latest_bridge_id, ?),
-                       updated_at = CASE
-                           WHEN updated_at < ? THEN ? ELSE updated_at
-                       END
-                 WHERE anchor_id = ?
-                """,
-                (latest_bridge_id, updated_at, updated_at, anchor_id),
-            )
-            return anchor_id
-        anchor_id = secrets.token_hex(4)
-        await db.execute(
-            """
-            INSERT INTO conversation_anchors(
-                anchor_id, chat_key, codex_backend_id, codex_thread_id, title,
-                alias, project_id, latest_bridge_id, broken_reason, archived,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, NULL, 0, ?, ?)
-            """,
-            (
-                anchor_id,
-                chat_key,
-                codex_backend_id,
-                codex_thread_id,
-                title,
-                latest_bridge_id,
-                created_at,
-                updated_at,
-            ),
-        )
-        return anchor_id
+            await db.commit()
 
     async def mark_waiting_threads_interrupted(self) -> None:
         """Mark any waiting threads as interrupted on process startup."""
@@ -1986,22 +1661,17 @@ class SQLiteStateRepository:
         webhook_id: str,
         chat_key: str,
         anchor_id: str | None = None,
-        thread_id: str | None = None,
         name: str,
         secret_hash: str,
     ) -> WebhookSubscription:
         """Persist one durable external-event subscription."""
         now = utcnow()
-        if anchor_id is None and thread_id is not None:
-            bridge = await self.get_bridge(thread_id)
-            anchor_id = bridge.anchor_id if bridge is not None else None
         async with aiosqlite.connect(self._path) as db:
             await db.execute(
                 """
                 INSERT INTO webhook_subscriptions(
                     webhook_id,
                     chat_key,
-                    thread_id,
                     anchor_id,
                     name,
                     secret_hash,
@@ -2010,12 +1680,11 @@ class SQLiteStateRepository:
                     updated_at,
                     trigger_count,
                     last_triggered_at
-                ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 0, NULL)
+                ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, 0, NULL)
                 """,
                 (
                     webhook_id,
                     chat_key,
-                    thread_id,
                     anchor_id,
                     name,
                     secret_hash,
@@ -2032,19 +1701,15 @@ class SQLiteStateRepository:
         self,
         *,
         chat_key: str | None = None,
-        thread_id: str | None = None,
         anchor_id: str | None = None,
         include_disabled: bool = False,
     ) -> list[WebhookSubscription]:
-        """List webhook subscriptions with optional chat/thread filtering."""
+        """List webhook subscriptions with optional chat/anchor filtering."""
         clauses: list[str] = []
         values: list[object] = []
         if chat_key is not None:
             clauses.append("webhook_subscriptions.chat_key = ?")
             values.append(chat_key)
-        if thread_id is not None:
-            clauses.append("webhook_subscriptions.thread_id = ?")
-            values.append(thread_id)
         if anchor_id is not None:
             clauses.append("webhook_subscriptions.anchor_id = ?")
             values.append(anchor_id)
@@ -2755,108 +2420,6 @@ class SQLiteTelegramProgressStore:
                 (chat_key, chat_id, topic_id, message_id, rendered_text, utcnow()),
             )
             await db.commit()
-
-
-async def _ensure_column(
-    db: aiosqlite.Connection,
-    *,
-    table_name: str,
-    column_name: str,
-    definition: str,
-) -> None:
-    rows = await (await db.execute(f"PRAGMA table_info({table_name})")).fetchall()
-    if any(str(row[1]) == column_name for row in rows):
-        return
-    await db.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
-
-
-async def _ensure_overrides_fast_mode_nullable(db: aiosqlite.Connection) -> None:
-    rows = await (await db.execute("PRAGMA table_info(overrides)")).fetchall()
-    fast_mode = next((row for row in rows if str(row[1]) == "fast_mode"), None)
-    if fast_mode is None or not int(fast_mode[3]):
-        return
-
-    await db.execute("ALTER TABLE overrides RENAME TO overrides_legacy_fast_mode")
-    await db.execute("""
-        CREATE TABLE overrides (
-            thread_id TEXT PRIMARY KEY,
-            profile TEXT,
-            model TEXT,
-            effort TEXT,
-            summary TEXT,
-            cwd TEXT,
-            fast_mode INTEGER,
-            fast_mode_is_set INTEGER NOT NULL DEFAULT 0,
-            verbosity TEXT,
-            command_verbosity TEXT,
-            followup_mode TEXT,
-            collaboration_mode TEXT
-        )
-    """)
-    await db.execute("""
-        INSERT INTO overrides(
-            thread_id, profile, model, effort, summary, cwd, fast_mode,
-            fast_mode_is_set, verbosity, command_verbosity, followup_mode,
-            collaboration_mode
-        )
-        SELECT thread_id, profile, model, effort, summary, cwd, fast_mode,
-               CASE WHEN fast_mode IS NOT NULL THEN 1 ELSE 0 END,
-               verbosity, command_verbosity, followup_mode, NULL
-          FROM overrides_legacy_fast_mode
-    """)
-    await db.execute("DROP TABLE overrides_legacy_fast_mode")
-
-
-async def _ensure_thread_delivery_watermarks_thread_scoped(
-    db: aiosqlite.Connection,
-) -> None:
-    rows = await (
-        await db.execute("PRAGMA table_info(thread_delivery_watermarks)")
-    ).fetchall()
-    if any(str(row[1]) == "thread_id" for row in rows):
-        return
-
-    await db.execute(
-        "ALTER TABLE thread_delivery_watermarks RENAME TO thread_delivery_watermarks_legacy"
-    )
-    await db.execute("""
-        CREATE TABLE thread_delivery_watermarks (
-            chat_key TEXT NOT NULL,
-            anchor_id TEXT NOT NULL,
-            thread_id TEXT NOT NULL,
-            last_message_id INTEGER NOT NULL DEFAULT 0,
-            updated_at TEXT NOT NULL,
-            PRIMARY KEY(chat_key, anchor_id, thread_id)
-        )
-    """)
-    await db.execute("""
-        INSERT INTO thread_delivery_watermarks(
-            chat_key, anchor_id, thread_id, last_message_id, updated_at
-        )
-        SELECT legacy.chat_key,
-               legacy.anchor_id,
-               COALESCE(message.thread_id, anchor.latest_bridge_id),
-               legacy.last_message_id,
-               legacy.updated_at
-          FROM thread_delivery_watermarks_legacy AS legacy
-          LEFT JOIN thread_messages AS message
-            ON message.id = legacy.last_message_id
-          LEFT JOIN conversation_anchors AS anchor
-            ON anchor.chat_key = legacy.chat_key
-           AND anchor.anchor_id = legacy.anchor_id
-         WHERE COALESCE(message.thread_id, anchor.latest_bridge_id) IS NOT NULL
-    """)
-    await db.execute("DROP TABLE thread_delivery_watermarks_legacy")
-
-
-async def _table_exists(db: aiosqlite.Connection, table_name: str) -> bool:
-    row = await (
-        await db.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
-            (table_name,),
-        )
-    ).fetchone()
-    return row is not None
 
 
 def _thread_from_row(row: aiosqlite.Row) -> LogicalThread:

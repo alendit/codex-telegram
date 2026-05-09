@@ -18,6 +18,7 @@ from codex_telegram.application.models import (
     UsageState,
 )
 from codex_telegram.application.service import TurnRunResult
+from codex_telegram.adapters.telegram.rendering import render_help
 from codex_telegram.domain import LogicalThread
 
 CONTEXT = ChatContext(chat_key="chat:123", chat_id=123, topic_id=None)
@@ -233,6 +234,44 @@ class _Host:
     ) -> None:
         del context
         self.finished_results.append(run_result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "command",
+    [
+        "abort",
+        "stop",
+        "cd",
+        "cwd",
+        "clearparams",
+        "backends",
+        "select_backend",
+        "select-backend",
+    ],
+)
+async def test_compatibility_commands_are_not_handled(command: str) -> None:
+    host = _Host()
+
+    handled = await TelegramCommandExecutor(cast(Any, host)).handle(
+        CONTEXT,
+        "thread-1",
+        (command, ""),
+        f"/{command}",
+    )
+
+    assert handled is False
+    assert host.sent_texts == []
+
+
+def test_render_help_does_not_advertise_compatibility_aliases() -> None:
+    rendered = render_help()
+
+    assert "Aliases" not in rendered
+    assert "/abort" not in rendered
+    assert "/stop map" not in rendered
+    assert "/cd" not in rendered
+    assert "/cwd" not in rendered
 
 
 @pytest.mark.asyncio

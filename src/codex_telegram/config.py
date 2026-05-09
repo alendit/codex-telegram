@@ -185,10 +185,7 @@ def load_config(
     focus_timeout_seconds = float(
         telegram_data.get(
             "focus_timeout_seconds",
-            telegram_data.get(
-                "bridge_window_ttl_seconds",
-                telegram_data.get("auto_new_thread_idle_seconds", 900.0),
-            ),
+            900.0,
         )
     )
     active_waiting_ttl_seconds = float(
@@ -212,7 +209,7 @@ def load_config(
             bridge_window_ttl_seconds=float(
                 telegram_data.get(
                     "bridge_window_ttl_seconds",
-                    telegram_data.get("auto_new_thread_idle_seconds", 900.0),
+                    900.0,
                 )
             ),
             default_language=default_language,
@@ -249,9 +246,7 @@ def load_config(
             ),
         ),
         attachments=AttachmentConfig(
-            shared_root=Path(
-                str(attachment_data.get("shared_root", "/attachments"))
-            ),
+            shared_root=Path(str(attachment_data.get("shared_root", "/attachments"))),
         ),
         app_server_url=app_server_url,
         app_server_token=primary_app_server.token,

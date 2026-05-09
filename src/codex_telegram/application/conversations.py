@@ -127,17 +127,13 @@ class ConversationLifecycleService:
         self._settings = settings
 
     async def ensure_active_thread(self, chat_key: str) -> LogicalThread:
-        """Return the focused bridge as the legacy logical-thread shape."""
+        """Return the focused bridge using the thread-facing read model."""
         return _logical_from_bridge(await self.ensure_focused_bridge(chat_key))
 
     async def ensure_focused_bridge(self, chat_key: str) -> BridgeThread:
         """Return the focused bridge, creating or reviving one if needed."""
         await self._repository.ensure_chat(chat_key)
         bridge = await self._repository.get_focused_bridge(chat_key)
-        if bridge is not None and not isinstance(bridge, BridgeThread):
-            legacy = await self._repository.get_active_thread(chat_key)
-            if isinstance(legacy, LogicalThread):
-                return _bridge_from_logical(legacy)
         if bridge is None:
             return _bridge_from_logical(await self._new_default_thread(chat_key))
         if self.bridge_focus_is_expired(bridge):
@@ -544,7 +540,7 @@ class ConversationLifecycleService:
 
 
 def logical_from_bridge(bridge: BridgeThread) -> LogicalThread:
-    """Convert a bridge window into the legacy logical-thread shape."""
+    """Convert a bridge window into the thread-facing read model."""
     return _logical_from_bridge(bridge)
 
 

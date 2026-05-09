@@ -182,7 +182,7 @@ class BotService:
         await self._client.async_healthcheck()
 
     async def ensure_active_thread(self, chat_key: str) -> LogicalThread:
-        """Return the focused bridge as the legacy logical-thread shape."""
+        """Return the focused bridge using the thread-facing read model."""
         return await self._conversations.ensure_active_thread(chat_key)
 
     async def ensure_focused_bridge(self, chat_key: str) -> BridgeThread:
@@ -508,18 +508,6 @@ class BotService:
                 f"Ambiguous skill shortcut: {selector}. Use one of: {names}"
             )
         raise ValueError(f"Unknown skill: {selector}")
-
-    async def webhook_thread(
-        self,
-        chat_key: str,
-        thread_id: str | None = None,
-    ) -> LogicalThread:
-        """Resolve a legacy webhook target as a bridge window."""
-        if thread_id is None:
-            return await self.ensure_active_thread(chat_key)
-        return (
-            await self.focus_bridge(chat_key, thread_id)
-        ).thread or await self.ensure_active_thread(chat_key)
 
     async def create_webhook_subscription(
         self,
