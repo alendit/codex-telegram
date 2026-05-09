@@ -1,0 +1,29 @@
+FROM node:22-bookworm AS node-runtime
+
+FROM python:3.13-bookworm AS codex-app-server-base
+
+ARG CODEX_NPM_VERSION=0.128.0
+
+COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-runtime /usr/local/lib/node_modules /usr/local/lib/node_modules
+
+RUN apt-get update     && apt-get install -y --no-install-recommends         bash         bubblewrap         ca-certificates         curl         git         jq         libgl1         procps         ripgrep         wget         zstd     && ln -sf /usr/bin/python3 /usr/local/bin/python     && ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm     && ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx     && rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g "@openai/codex@${CODEX_NPM_VERSION}"
+
+FROM codex-app-server-base AS codex-app-server-runtime
+
+COPY agent-template /opt/agent-template
+COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+COPY scripts/codex-telegram-webhook /usr/local/bin/codex-telegram-webhook
+COPY scripts/codex-telegram-send-attachment /usr/local/bin/codex-telegram-send-attachment
+COPY scripts/codex-telegram-bridge /usr/local/bin/codex-telegram-bridge
+
+RUN chmod +x     /usr/local/bin/docker-entrypoint.sh     /usr/local/bin/codex-telegram-webhook     /usr/local/bin/codex-telegram-send-attachment     /usr/local/bin/codex-telegram-bridge
+
+WORKDIR /agent
+
+EXPOSE 4312
+
+ENTRYPOINT ["docker-entrypoint.sh"]
+CMD ["codex", "--enable", "codex_hooks", "app-server", "--listen", "ws://0.0.0.0:4312"]

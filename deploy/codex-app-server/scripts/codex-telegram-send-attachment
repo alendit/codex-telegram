@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+"""Queue outbound Telegram attachments from the runtime container."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from urllib import error, request
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="codex-telegram-send-attachment")
+    parser.add_argument("--thread-id", required=True, help="Bridge id")
+    parser.add_argument("--caption", default=None, help="Optional Telegram caption")
+    parser.add_argument("path", help="Absolute file path under /attachments")
+    args = parser.parse_args(argv)
+
+    admin_token = os.environ.get("CODEX_TELEGRAM_ATTACHMENT_ADMIN_TOKEN")
+    if not admin_token:
+        raise SystemExit("CODEX_TELEGRAM_ATTACHMENT_ADMIN_TOKEN is required")
+    base_url = os.environ.get(
+        "CODEX_TELEGRAM_ATTACHMENT_ADMIN_URL",
+        "http://127.0.0.1:19080",
+    ).rstrip("/")
+    payload: dict[str, object] = {
+        "thread_id": args.thread_id,
+        "path": args.path,
+    }
+    if args.caption is not None:
+        payload["caption"] = args.caption
+    req = request.Request(
+        base_url + "/attachments",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {admin_token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with request.urlopen(req, timeout=30) as response:
+            raw = response.read().decode("utf-8")
+    except error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise SystemExit(f"Attachment API returned {exc.code}: {detail}") from exc
+    if raw:
+        print(json.dumps(json.loads(raw), indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

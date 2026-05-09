@@ -1,0 +1,37 @@
+[project]
+name = "codex-telegram"
+version = "0.1.0"
+description = "Direct Telegram bot for Codex via codex app-server."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "aiohttp>=3.11.16",
+  "aiogram>=3.20.0.post0",
+  "aiosqlite>=0.21.0",
+  "structlog>=25.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "black>=26.3.1",
+  "mypy>=1.18.0",
+  "pytest>=8.3.5",
+  "pytest-asyncio>=0.26.0",
+  "telethon>=1.40.0",
+]
+
+[project.scripts]
+codex-telegram = "codex_telegram.entrypoints.bot:main"
+codex-telegram-send-attachment = "codex_telegram.entrypoints.send_attachment:main"
+codex-telegram-smoke = "codex_telegram.entrypoints.telegram_smoke:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/codex_telegram"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

@@ -1,0 +1,112 @@
+[telegram]
+# enable_topic_sessions = false
+# typing_refresh_seconds = 4.0
+# wait_notice_seconds = 180.0
+# bridge_window_ttl_seconds = 900.0
+# focus_timeout_seconds = 900.0
+# active_waiting_ttl_seconds = 3600.0
+# default_language = ""
+
+[speech_to_text]
+enabled = true
+# provider = "codex"
+# base_url = ""
+# api_key = ""
+# model = "whisper-1"
+# language_hint = ""
+# request_timeout_seconds = 60.0
+
+[webhook]
+# enabled = false
+# host = "127.0.0.1"
+# port = 8080
+# admin_token = ""
+# public_base_url = ""
+
+[attachments]
+# shared_root = "/attachments"
+
+# If this table is omitted, the app uses CODEX_APP_SERVER_WS_URL with the
+# default ws://127.0.0.1:4312 value and CODEX_APP_SERVER_WS_TOKEN when set.
+# [app_servers.primary]
+# name = "primary"
+# url = "ws://127.0.0.1:4312"
+# token_env = "CODEX_APP_SERVER_WS_TOKEN"
+# primary = true
+
+[defaults]
+# profile = "operator"
+
+[defaults.default_project]
+connection = "primary"
+root_path = "/agent"
+label = "agent"
+
+# Optional per-chat profile defaults. Keep real chat ids in private config.
+# [client_default_profiles]
+# "chat:123456789" = "tmpwrite"
+
+# Optional per-chat project allowlists. Keep real chat ids in private config.
+# [client_allowed_projects]
+# "chat:123456789" = [
+#   { connection = "primary", root_path = "/agent" },
+# ]
+
+[profiles.readonly]
+model = "gpt-5.4"
+# model_provider = "openai"
+# approval_policy = "never"
+# sandbox_type = "readOnly"
+# network_access = false
+# writable_roots = []
+effort = "low"
+fast_mode = true
+# summary = "concise"
+verbosity = "none"
+# command_verbosity = "errors"
+# followup_mode = "steer"
+developer_instructions = "Keep replies concise and do not modify files."
+
+[profiles.tmpwrite]
+model = "gpt-5.4"
+# model_provider = "openai"
+# approval_policy = "never"
+sandbox_type = "workspaceWrite"
+network_access = true
+writable_roots = ["/tmp"]
+effort = "low"
+# fast_mode = false
+# summary = "concise"
+verbosity = "none"
+# command_verbosity = "errors"
+# followup_mode = "steer"
+developer_instructions = "Use /tmp for scratch work and keep the workspace itself read-only."
+
+[profiles.operator]
+model = "gpt-5.4"
+# model_provider = "openai"
+approval_policy = "on-request"
+sandbox_type = "workspaceWrite"
+network_access = true
+# writable_roots = []
+# effort = "medium"
+# fast_mode = false
+# summary = "concise"
+# verbosity = "verbose"
+command_verbosity = "verbose"
+# followup_mode = "steer"
+
+[profiles.config_editor]
+model = "gpt-5.4"
+# model_provider = "openai"
+approval_policy = "on-request"
+sandbox_type = "workspaceWrite"
+# network_access = false
+# writable_roots = []
+# effort = "medium"
+# fast_mode = false
+# summary = "concise"
+# verbosity = "verbose"
+command_verbosity = "verbose"
+# followup_mode = "steer"
+developer_instructions = "Treat this thread as a careful configuration editor. Prefer minimal edits and explain risky changes."

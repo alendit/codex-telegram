@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""Manage codex-telegram durable webhook subscriptions from app-server."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from urllib import error, parse, request
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="codex-telegram-webhook")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    create = subparsers.add_parser("create", help="Create a webhook subscription")
+    create.add_argument("name")
+    create.add_argument("--chat-key", required=True)
+    create.add_argument("--anchor-id")
+    create.add_argument("--codex-backend-id")
+    create.add_argument("--codex-thread-id")
+
+    list_cmd = subparsers.add_parser("list", help="List webhook subscriptions")
+    list_cmd.add_argument("--chat-key")
+    list_cmd.add_argument("--anchor-id")
+    list_cmd.add_argument("--include-disabled", action="store_true")
+
+    revoke = subparsers.add_parser("revoke", help="Revoke a webhook subscription")
+    revoke.add_argument("selector")
+    revoke.add_argument("--chat-key")
+
+    args = parser.parse_args(argv)
+    client = _AdminClient.from_env()
+
+    if args.command == "create":
+        if not args.anchor_id and not args.codex_thread_id:
+            parser.error("create requires --anchor-id or --codex-thread-id")
+        payload = {
+            "name": args.name,
+            "chat_key": args.chat_key,
+            "anchor_id": args.anchor_id,
+            "codex_backend_id": args.codex_backend_id,
+            "codex_thread_id": args.codex_thread_id,
+        }
+        print(json.dumps(client.request("POST", "/webhooks", payload), indent=2))
+        return 0
+    if args.command == "list":
+        query = {
+            "chat_key": args.chat_key,
+            "anchor_id": args.anchor_id,
+            "include_disabled": "true" if args.include_disabled else None,
+        }
+        print(json.dumps(client.request("GET", "/webhooks", query=query), indent=2))
+        return 0
+    if args.command == "revoke":
+        query = {"chat_key": args.chat_key}
+        path = "/webhooks/" + parse.quote(args.selector, safe="")
+        print(json.dumps(client.request("DELETE", path, query=query), indent=2))
+        return 0
+    parser.error("Unknown command")
+    return 2
+
+
+class _AdminClient:
+    def __init__(self, base_url: str, token: str) -> None:
+        self._base_url = base_url.rstrip("/")
+        self._token = token
+
+    @classmethod
+    def from_env(cls) -> _AdminClient:
+        token = os.environ.get("CODEX_TELEGRAM_WEBHOOK_ADMIN_TOKEN") or os.environ.get(
+            "CODEX_TELEGRAM_WEBHOOK_TOKEN"
+        )
+        if not token:
+            raise SystemExit(
+                "CODEX_TELEGRAM_WEBHOOK_ADMIN_TOKEN or "
+                "CODEX_TELEGRAM_WEBHOOK_TOKEN is required for webhook management"
+            )
+        base_url = os.environ.get(
+            "CODEX_TELEGRAM_WEBHOOK_ADMIN_URL",
+            "http://127.0.0.1:8080",
+        )
+        return cls(base_url, token)
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        body: dict[str, object] | None = None,
+        *,
+        query: dict[str, object | None] | None = None,
+    ) -> object:
+        url = self._base_url + path
+        if query:
+            clean_query = {
+                key: value for key, value in query.items() if value is not None
+            }
+            if clean_query:
+                url += "?" + parse.urlencode(clean_query)
+        data = None
+        headers = {"Authorization": f"Bearer {self._token}"}
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        req = request.Request(url, data=data, headers=headers, method=method)
+        try:
+            with request.urlopen(req, timeout=30) as response:
+                raw = response.read().decode("utf-8")
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise SystemExit(f"Webhook API returned {exc.code}: {detail}") from exc
+        if not raw:
+            return {}
+        return json.loads(raw)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

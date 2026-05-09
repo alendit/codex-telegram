@@ -1,0 +1,56 @@
+services:
+  codex-telegram:
+    image: codex-telegram:latest
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      CODEX_TELEGRAM_CONFIG: /app/config/codex_telegram.toml
+      CODEX_APP_SERVER_WS_URL: ws://codex-app-server:4312
+      CODEX_TELEGRAM_WEBHOOK_ADMIN_URL: http://codex-telegram:8080
+      CODEX_TELEGRAM_ATTACHMENT_ADMIN_URL: http://codex-telegram:8080
+    volumes:
+      - codex-telegram-state:/state
+      - codex-telegram-attachments:/attachments
+      - ../config:/app/config:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      - codex-app-server
+
+  codex-app-server:
+    image: codex-app-server:latest
+    build:
+      context: ./codex-app-server
+      dockerfile: Dockerfile.base
+      target: codex-app-server-runtime
+    restart: unless-stopped
+    environment:
+      CODEX_APP_SERVER_WS_TOKEN: ${CODEX_APP_SERVER_WS_TOKEN}
+      CODEX_TELEGRAM_WEBHOOK_ADMIN_URL: http://codex-telegram:8080
+      CODEX_TELEGRAM_WEBHOOK_ADMIN_TOKEN: ${CODEX_TELEGRAM_WEBHOOK_TOKEN}
+      CODEX_TELEGRAM_ATTACHMENT_ADMIN_URL: http://codex-telegram:8080
+      CODEX_TELEGRAM_ATTACHMENT_ADMIN_TOKEN: ${CODEX_TELEGRAM_WEBHOOK_TOKEN}
+    volumes:
+      - codex-agent-workspace:/agent
+      - codex-home:/root/.codex
+      - codex-telegram-attachments:/attachments
+    command:
+      - codex
+      - --enable
+      - codex_hooks
+      - app-server
+      - --listen
+      - ws://0.0.0.0:4312
+
+  # Optional public exposure can be added with a reverse proxy, tunnel, or
+  # platform-specific ingress. Keep provider credentials out of git.
+
+volumes:
+  codex-telegram-state:
+  codex-telegram-attachments:
+  codex-agent-workspace:
+  codex-home:

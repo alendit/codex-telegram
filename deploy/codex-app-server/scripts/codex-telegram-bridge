@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""Operate the current codex-telegram bridge from the runtime container."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from urllib import error, parse, request
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="codex-telegram-bridge")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    status = subparsers.add_parser("status", help="Inspect a Telegram bridge")
+    status.add_argument("--thread-id", required=True)
+
+    command = subparsers.add_parser(
+        "command",
+        help="Run a Telegram command or message through the bridge",
+    )
+    command.add_argument("--thread-id", required=True)
+    command.add_argument("text")
+
+    notify = subparsers.add_parser("notify", help="Send an operational notice")
+    notify.add_argument("--thread-id", required=True)
+    notify.add_argument("--text", required=True)
+    notify.add_argument("--level", choices=("info", "warning"), default="info")
+
+    refresh = subparsers.add_parser("refresh", help="Refresh the Telegram status card")
+    refresh.add_argument("--thread-id", required=True)
+
+    args = parser.parse_args(argv)
+    client = _AdminClient.from_env()
+
+    if args.command == "status":
+        path = "/bridges/" + parse.quote(args.thread_id, safe="")
+        print(json.dumps(client.request("GET", path), indent=2))
+        return 0
+    if args.command == "command":
+        print(
+            json.dumps(
+                client.request(
+                    "POST",
+                    "/bridge-command",
+                    {"thread_id": args.thread_id, "text": args.text},
+                ),
+                indent=2,
+            )
+        )
+        return 0
+    if args.command == "notify":
+        print(
+            json.dumps(
+                client.request(
+                    "POST",
+                    "/bridge-control",
+                    {
+                        "thread_id": args.thread_id,
+                        "action": "notify",
+                        "text": args.text,
+                        "level": args.level,
+                    },
+                ),
+                indent=2,
+            )
+        )
+        return 0
+    if args.command == "refresh":
+        print(
+            json.dumps(
+                client.request(
+                    "POST",
+                    "/bridge-control",
+                    {"thread_id": args.thread_id, "action": "refresh_status_card"},
+                ),
+                indent=2,
+            )
+        )
+        return 0
+    parser.error("Unknown command")
+    return 2
+
+
+class _AdminClient:
+    def __init__(self, base_url: str, token: str) -> None:
+        self._base_url = base_url.rstrip("/")
+        self._token = token
+
+    @classmethod
+    def from_env(cls) -> _AdminClient:
+        token = os.environ.get("CODEX_TELEGRAM_WEBHOOK_ADMIN_TOKEN") or os.environ.get(
+            "CODEX_TELEGRAM_WEBHOOK_TOKEN"
+        )
+        if not token:
+            raise SystemExit(
+                "CODEX_TELEGRAM_WEBHOOK_ADMIN_TOKEN or "
+                "CODEX_TELEGRAM_WEBHOOK_TOKEN is required for bridge control"
+            )
+        base_url = os.environ.get(
+            "CODEX_TELEGRAM_WEBHOOK_ADMIN_URL",
+            "http://127.0.0.1:8080",
+        )
+        return cls(base_url, token)
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        body: dict[str, object] | None = None,
+    ) -> object:
+        data = None
+        headers = {"Authorization": f"Bearer {self._token}"}
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        req = request.Request(
+            self._base_url + path,
+            data=data,
+            headers=headers,
+            method=method,
+        )
+        try:
+            with request.urlopen(req, timeout=30) as response:
+                raw = response.read().decode("utf-8")
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise SystemExit(f"Bridge API returned {exc.code}: {detail}") from exc
+        if not raw:
+            return {}
+        return json.loads(raw)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
