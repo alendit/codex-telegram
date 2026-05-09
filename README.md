@@ -1,5 +1,9 @@
 # codex-telegram
 
+[![Version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/alendit/codex-telegram/releases/tag/v0.1.0)
+[![Docker image](https://img.shields.io/badge/image-ghcr.io%2Falendit%2Fcodex--telegram%3A0.1.0-blue?logo=github)](https://github.com/alendit/codex-telegram/pkgs/container/codex-telegram)
+[![CI](https://github.com/alendit/codex-telegram/actions/workflows/ci.yml/badge.svg)](https://github.com/alendit/codex-telegram/actions/workflows/ci.yml)
+
 Direct Telegram bot for Codex backed by `codex app-server`.
 
 `codex-telegram` is an async Python application with a narrow architecture:
@@ -96,6 +100,12 @@ Edit `deploy/.env`, set `TELEGRAM_BOT_TOKEN` and
 
 ```bash
 docker compose --env-file deploy/.env -f deploy/docker-compose.example.yaml up --build
+```
+
+The bridge image is published as:
+
+```bash
+docker pull ghcr.io/alendit/codex-telegram:0.1.0
 ```
 
 The example uses named volumes for `/agent`, `/root/.codex`, SQLite state, and
