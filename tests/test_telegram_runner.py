@@ -188,7 +188,67 @@ async def test_bridge_api_command_uses_telegram_command_executor(
     assert result == {"accepted": True, "thread_id": "thread-1"}
     service.current_thread_state.assert_awaited_once_with("chat:1")
     bot.send_message.assert_awaited_once()
-    assert "Conversation: Bridge command" in bot.send_message.await_args.kwargs["text"]
+    assert (
+        "<b>Conversation</b> Bridge command"
+        in bot.send_message.await_args.kwargs["text"]
+    )
+    assert bot.send_message.await_args.kwargs["parse_mode"] == "HTML"
+
+
+@pytest.mark.asyncio
+async def test_status_command_is_compatibility_alias_for_current_thread(
+    tmp_path: Path,
+) -> None:
+    repository = SQLiteStateRepository(tmp_path / "state.db")
+    progress_store = SQLiteTelegramProgressStore(tmp_path / "state.db")
+    await repository.initialize()
+    await progress_store.initialize()
+    await repository.ensure_chat("chat:1")
+    await repository.create_thread("chat:1", "thread-1", "Bridge command")
+    thread = await repository.get_thread("thread-1")
+    assert thread is not None
+
+    service = AsyncMock()
+    service.bridge_snapshot.return_value = BridgeSnapshot(
+        logical_thread_id="thread-1",
+        chat_key="chat:1",
+        title="Bridge command",
+        anchor_id=None,
+        codex_backend_id="primary",
+        codex_thread_id=None,
+        active=True,
+        awaiting_reply=False,
+        pending_turn_id=None,
+        expires_at=None,
+        closed_at=None,
+    )
+    service.current_thread_state.return_value = CurrentThreadState(
+        thread=thread,
+        settings=_effective_settings(),
+        pending=None,
+        realtime=None,
+        runtime=CodexRuntimeState(),
+    )
+    bot = AsyncMock()
+    runner = TelegramBotRunner(
+        bot,
+        Dispatcher(),
+        service,
+        repository,
+        progress_store,
+        None,
+        False,
+    )
+
+    result = await runner.run_bridge_command("thread-1", "/status")
+
+    assert result == {"accepted": True, "thread_id": "thread-1"}
+    service.current_thread_state.assert_awaited_once_with("chat:1")
+    assert (
+        "<b>Conversation</b> Bridge command"
+        in bot.send_message.await_args.kwargs["text"]
+    )
+    assert bot.send_message.await_args.kwargs["parse_mode"] == "HTML"
 
 
 @pytest.mark.asyncio
@@ -302,7 +362,8 @@ async def test_followup_mode_command_updates_followup_mode_override(
         "queue",
     )
     bot.send_message.assert_awaited_once()
-    assert bot.send_message.await_args.kwargs["text"] == "followup_mode: queue"
+    assert bot.send_message.await_args.kwargs["text"] == "<b>followup_mode</b> queue"
+    assert bot.send_message.await_args.kwargs["parse_mode"] == "HTML"
 
 
 @pytest.mark.asyncio
@@ -336,7 +397,11 @@ async def test_goal_command_status_renders_current_goal(tmp_path: Path) -> None:
 
     assert handled is True
     service.get_goal.assert_awaited_once_with("chat:1")
-    assert "Goal: Ship goal command" in bot.send_message.await_args.kwargs["text"]
+    assert (
+        "<b>Objective</b> Ship goal command"
+        in bot.send_message.await_args.kwargs["text"]
+    )
+    assert bot.send_message.await_args.kwargs["parse_mode"] == "HTML"
 
 
 @pytest.mark.asyncio
@@ -377,7 +442,8 @@ async def test_goal_command_sets_objective_with_budget(tmp_path: Path) -> None:
         status="active",
         update_token_budget=True,
     )
-    assert "Tokens: 0 / 500" in bot.send_message.await_args.kwargs["text"]
+    assert "<b>Tokens</b> 0 / 500" in bot.send_message.await_args.kwargs["text"]
+    assert bot.send_message.await_args.kwargs["parse_mode"] == "HTML"
 
 
 @pytest.mark.asyncio
@@ -501,7 +567,8 @@ async def test_plan_command_sets_sticky_plan_mode(tmp_path: Path) -> None:
 
     assert handled is True
     service.set_collaboration_mode.assert_awaited_once_with("chat:1", "plan")
-    assert "Mode: plan" in bot.send_message.await_args.kwargs["text"]
+    assert "<b>Mode</b> plan" in bot.send_message.await_args.kwargs["text"]
+    assert bot.send_message.await_args.kwargs["parse_mode"] == "HTML"
 
 
 @pytest.mark.asyncio
@@ -1765,7 +1832,7 @@ async def test_codex_threads_recent_callback_lists_recent_threads(
 
     service.list_recent_codex_threads.assert_awaited_once_with(
         "chat:1",
-        limit=5,
+        limit=6,
     )
     sent = bot.send_message.await_args.kwargs
     assert sent["parse_mode"] == "HTML"
@@ -1774,6 +1841,104 @@ async def test_codex_threads_recent_callback_lists_recent_threads(
     assert "<b>Backend</b>" not in sent["text"]
     assert re.search(r"/ct_[0-9a-f]{8}\b", sent["text"]) is not None
     assert "reply_markup" not in sent
+
+
+@pytest.mark.asyncio
+async def test_codex_threads_recent_callback_more_expands_to_twenty(
+    tmp_path: Path,
+) -> None:
+    repository = SQLiteStateRepository(tmp_path / "state.db")
+    progress_store = SQLiteTelegramProgressStore(tmp_path / "state.db")
+    await repository.initialize()
+    await progress_store.initialize()
+    token = await repository.create_callback_token(
+        chat_key="chat:1",
+        topic_id=None,
+        action="codex_threads_recent",
+        payload={},
+        expires_at="2999-01-01T00:00:00+00:00",
+    )
+
+    def thread(index: int) -> CodexThread:
+        return CodexThread(
+            thread_id=f"codex-{index}",
+            cwd="/agent/app",
+            title=f"Thread {index}",
+            preview=None,
+            status="idle",
+            created_at=1710000000 + index,
+            updated_at=1710000300 + index,
+            model_provider="openai",
+            codex_backend_id="mac",
+            codex_backend_name="Mac",
+        )
+
+    service = AsyncMock()
+    service.list_recent_codex_threads.side_effect = [
+        CodexThreadListResult(
+            groups=[
+                CodexThreadGroup(
+                    project="/agent/app",
+                    threads=[thread(index) for index in range(6)],
+                )
+            ],
+            failures=[],
+        ),
+        CodexThreadListResult(
+            groups=[
+                CodexThreadGroup(
+                    project="/agent/app",
+                    threads=[thread(index) for index in range(20)],
+                )
+            ],
+            failures=[],
+        ),
+    ]
+    bot = AsyncMock()
+    runner = TelegramBotRunner(
+        bot,
+        Dispatcher(),
+        service,
+        repository,
+        progress_store,
+        None,
+        False,
+    )
+    callback = SimpleNamespace(
+        data=f"ct:{token}",
+        message=SimpleNamespace(
+            chat=SimpleNamespace(id=1),
+            message_thread_id=None,
+            message_id=55,
+        ),
+        answer=AsyncMock(),
+    )
+
+    await runner._on_callback_query(cast(CallbackQuery, callback))
+
+    service.list_recent_codex_threads.assert_awaited_once_with(
+        "chat:1",
+        limit=6,
+    )
+    compact = bot.send_message.await_args.kwargs
+    assert "Thread 4" in compact["text"]
+    assert "Thread 5" not in compact["text"]
+    more_button = compact["reply_markup"].inline_keyboard[0][0]
+    assert more_button.text == "More"
+
+    callback.data = more_button.callback_data
+    bot.send_message.reset_mock()
+    service.list_recent_codex_threads.reset_mock()
+
+    await runner._on_callback_query(cast(CallbackQuery, callback))
+
+    service.list_recent_codex_threads.assert_awaited_once_with(
+        "chat:1",
+        limit=20,
+    )
+    expanded = bot.send_message.await_args.kwargs
+    assert "Thread 19" in expanded["text"]
+    assert "reply_markup" not in expanded
 
 
 @pytest.mark.asyncio
@@ -1829,7 +1994,7 @@ async def test_codex_threads_connection_callback_lists_recent_projects(
         chat_key="chat:1",
         connection_id="laptop",
         include_all=False,
-        limit=5,
+        limit=6,
     )
     sent = bot.send_message.await_args.kwargs
     assert sent["text"] == "Choose a project on Laptop."
@@ -1908,7 +2073,7 @@ async def test_codex_threads_project_callback_lists_recent_threads(
         backend_id="laptop",
         include_all=False,
         project_id="project-1",
-        limit=5,
+        limit=6,
     )
     sent = bot.send_message.await_args.kwargs
     assert sent["parse_mode"] == "HTML"
@@ -3147,7 +3312,7 @@ async def test_new_recent_projects_callback_lists_five_cross_connection_projects
     service.list_recent_projects.assert_awaited_once_with(
         chat_key="chat:1",
         include_all=True,
-        limit=5,
+        limit=6,
     )
     sent = bot.send_message.await_args.kwargs
     assert sent["text"] == "Choose a recent project."
@@ -3161,6 +3326,98 @@ async def test_new_recent_projects_callback_lists_five_cross_connection_projects
         "Project 3",
         "Project 4",
     ]
+
+
+@pytest.mark.asyncio
+async def test_new_recent_projects_callback_more_expands_to_twenty(
+    tmp_path: Path,
+) -> None:
+    repository = SQLiteStateRepository(tmp_path / "state.db")
+    progress_store = SQLiteTelegramProgressStore(tmp_path / "state.db")
+    await repository.initialize()
+    await progress_store.initialize()
+    token = await repository.create_callback_token(
+        chat_key="chat:1",
+        topic_id=None,
+        action="new_recent_projects",
+        payload={},
+        expires_at="2999-01-01T00:00:00+00:00",
+    )
+
+    def project(index: int) -> Project:
+        return Project(
+            project_id=f"project-{index}",
+            connection_id=f"backend-{index % 2}",
+            root_path=f"/agent/project-{index}",
+            label=f"Project {index}",
+            created_at="now",
+            updated_at="now",
+        )
+
+    service = AsyncMock()
+    service.list_recent_projects.side_effect = [
+        [project(index) for index in range(6)],
+        [project(index) for index in range(20)],
+    ]
+    bot = AsyncMock()
+    runner = TelegramBotRunner(
+        bot,
+        Dispatcher(),
+        service,
+        repository,
+        progress_store,
+        None,
+        False,
+    )
+    callback = SimpleNamespace(
+        data=f"ct:{token}",
+        message=SimpleNamespace(
+            chat=SimpleNamespace(id=1),
+            message_thread_id=None,
+            message_id=55,
+        ),
+        answer=AsyncMock(),
+    )
+
+    await runner._on_callback_query(cast(CallbackQuery, callback))
+
+    service.list_recent_projects.assert_awaited_once_with(
+        chat_key="chat:1",
+        include_all=True,
+        limit=6,
+    )
+    compact = bot.send_message.await_args.kwargs
+    labels = [
+        button.text for row in compact["reply_markup"].inline_keyboard for button in row
+    ]
+    assert labels == [
+        "Project 0",
+        "Project 1",
+        "Project 2",
+        "Project 3",
+        "Project 4",
+        "More",
+    ]
+    more_button = compact["reply_markup"].inline_keyboard[-1][0]
+
+    callback.data = more_button.callback_data
+    bot.send_message.reset_mock()
+    service.list_recent_projects.reset_mock()
+
+    await runner._on_callback_query(cast(CallbackQuery, callback))
+
+    service.list_recent_projects.assert_awaited_once_with(
+        chat_key="chat:1",
+        include_all=True,
+        limit=20,
+    )
+    expanded = bot.send_message.await_args.kwargs
+    expanded_labels = [
+        button.text
+        for row in expanded["reply_markup"].inline_keyboard
+        for button in row
+    ]
+    assert expanded_labels == [f"Project {index}" for index in range(20)]
 
 
 @pytest.mark.asyncio
@@ -3214,7 +3471,7 @@ async def test_new_connection_callback_lists_recent_projects(tmp_path: Path) -> 
         chat_key="chat:1",
         connection_id="laptop",
         include_all=False,
-        limit=5,
+        limit=6,
     )
     labels = [
         button.text
@@ -3632,7 +3889,8 @@ async def test_status_card_projects_shortcut_sends_project_state_at_bottom(
 
     service.show_project_state.assert_awaited_once_with("chat:1")
     bot.edit_message_text.assert_not_awaited()
-    assert "Active project: (none)" in bot.send_message.await_args.kwargs["text"]
+    assert "<b>Active project</b> (none)" in bot.send_message.await_args.kwargs["text"]
+    assert bot.send_message.await_args.kwargs["parse_mode"] == "HTML"
 
 
 @pytest.mark.asyncio
@@ -3689,7 +3947,7 @@ async def test_threads_recent_projects_shortcut_lists_five_cross_connection_proj
         chat_key="chat:1",
         connection_id=None,
         include_all=True,
-        limit=5,
+        limit=6,
     )
     bot.edit_message_text.assert_not_awaited()
     sent = bot.send_message.await_args.kwargs
@@ -3760,8 +4018,9 @@ async def test_project_command_is_read_only_current_project(tmp_path: Path) -> N
     assert handled is True
     service.show_project_state.assert_awaited_once_with("chat:1")
     sent = bot.send_message.await_args.kwargs["text"]
-    assert "Active project: laptop:app -> /agent/app" in sent
-    assert "Model: gpt-5.4-mini" in sent
+    assert "<b>Active project</b> laptop:app -&gt; <code>/agent/app</code>" in sent
+    assert "• <b>Model</b> <code>gpt-5.4-mini</code>" in sent
+    assert bot.send_message.await_args.kwargs["parse_mode"] == "HTML"
     assert "Known projects" not in sent
 
     bot.reset_mock()
@@ -4101,7 +4360,8 @@ async def test_codex_thread_text_shortcut_connects_thread(
         backend_id=None,
     )
     sent_text = bot.send_message.await_args.kwargs["text"]
-    assert "Attached Codex thread Fix CI." in sent_text
+    assert "🟢 <b>Attached Codex thread</b> Fix CI" in sent_text
+    assert bot.send_message.await_args.kwargs["parse_mode"] == "HTML"
     assert "codex-1" not in sent_text
     assert "anchor-1" not in sent_text
     assert "bridge-1" not in sent_text
@@ -5151,7 +5411,8 @@ async def test_callback_connects_codex_thread_and_answers_query(tmp_path: Path) 
     )
     callback.answer.assert_awaited_once()
     sent_text = bot.send_message.await_args.kwargs["text"]
-    assert "Attached Codex thread Fix CI." in sent_text
+    assert "🟢 <b>Attached Codex thread</b> Fix CI" in sent_text
+    assert bot.send_message.await_args.kwargs["parse_mode"] == "HTML"
     assert "codex-1" not in sent_text
     assert "anchor-1" not in sent_text
     assert "bridge-1" not in sent_text
@@ -5379,7 +5640,12 @@ async def test_approval_request_includes_inline_decision_buttons(
 
     bot.send_message.assert_awaited_once()
     kwargs = bot.send_message.await_args.kwargs
-    assert kwargs["text"] == "⚠️ Codex needs approval: uv run pytest\nReason: Run tests"
+    assert kwargs["text"] == (
+        "⚠️ <b>Codex needs approval</b>\n"
+        "<b>Command</b> <code>uv run pytest</code>\n"
+        "<b>Reason</b> Run tests"
+    )
+    assert kwargs["parse_mode"] == "HTML"
     assert "/approve" not in kwargs["text"]
     markup = kwargs["reply_markup"]
     labels = [[button.text for button in row] for row in markup.inline_keyboard]
@@ -5439,10 +5705,12 @@ async def test_approval_request_includes_guardian_message(
 
     bot.send_message.assert_awaited_once()
     assert bot.send_message.await_args.kwargs["text"] == (
-        "⚠️ Codex needs approval: uv run pytest\n"
-        "Reason: Run tests\n"
-        "Guardian: Guardian reviewed the approach before execution."
+        "⚠️ <b>Codex needs approval</b>\n"
+        "<b>Command</b> <code>uv run pytest</code>\n"
+        "<b>Reason</b> Run tests\n"
+        "<b>Guardian</b> Guardian reviewed the approach before execution."
     )
+    assert bot.send_message.await_args.kwargs["parse_mode"] == "HTML"
 
 
 @pytest.mark.asyncio
@@ -6221,9 +6489,10 @@ async def test_runtime_error_reports_actual_summary(tmp_path: Path) -> None:
     bot.send_message.assert_awaited_once()
     sent_text = bot.send_message.await_args.kwargs["text"]
     assert sent_text == (
-        "⚠️ Message handling failed before reaching Codex: "
+        "⚠️ <b>Message handling failed</b>\n"
         "Telegram rejected a bot message because it was too long."
     )
+    assert bot.send_message.await_args.kwargs["parse_mode"] == "HTML"
 
 
 @pytest.mark.asyncio

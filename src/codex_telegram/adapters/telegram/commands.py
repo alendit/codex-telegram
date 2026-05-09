@@ -26,13 +26,11 @@ from codex_telegram.adapters.telegram.rendering import (
     render_settings,
     render_single_setting,
     render_skills,
-    render_status,
     render_usage,
     render_webhook_created,
     render_webhooks,
 )
 from codex_telegram.adapters.telegram.routing import ChatContext
-from codex_telegram.application.models import CodexRuntimeState
 from codex_telegram.application.service import (
     BotService,
     ThreadSelectionResult,
@@ -41,7 +39,6 @@ from codex_telegram.application.service import (
 from codex_telegram.domain import (
     Project,
     RealtimeEvent,
-    RealtimeSession,
     TurnUpdate,
     WebhookSubscription,
 )
@@ -270,7 +267,9 @@ class TelegramCommandExecutor:
                 parsed.positionals[0],
                 backend_name=parsed.connection,
             )
-            await host._send_text(context, render_codex_thread_attached(connection))
+            await host._send_text(
+                context, render_codex_thread_attached(connection), parse_mode="HTML"
+            )
             await host._sync_thread_status_card(context)
             return True
         if name == "focus":
@@ -310,9 +309,11 @@ class TelegramCommandExecutor:
                 )
             await host._finish_run_result(context, run_result)
             return True
-        if name == "current":
+        if name in {"current", "status", "settings"}:
             current = await host._service.current_thread_state(context.chat_key)
-            await host._send_text(context, render_current_thread(current))
+            await host._send_text(
+                context, render_current_thread(current), parse_mode="HTML"
+            )
             return True
         if name == "history":
             limit = 10
@@ -326,10 +327,10 @@ class TelegramCommandExecutor:
                     )
                     return True
             history = await host._service.thread_history(context.chat_key, limit)
-            await host._send_text(context, render_history(history))
+            await host._send_text(context, render_history(history), parse_mode="HTML")
             return True
         if name == "help":
-            await host._send_text(context, render_help())
+            await host._send_text(context, render_help(), parse_mode="HTML")
             return True
         if name == "skills":
             search, force_reload = _parse_skills_argument(argument)
@@ -373,34 +374,12 @@ class TelegramCommandExecutor:
                 "This bot is Codex-only. Backend switching is not supported here.",
             )
             return True
-        if name in {"settings", "status"}:
-            thread = await host._service.ensure_active_thread(context.chat_key)
-            settings = await host._service.get_settings(
-                thread.thread_id,
-                context.chat_key,
-            )
-            pending = await host._service.pending_request_for_chat(context.chat_key)
-            realtime = await host._service.realtime_state(context.chat_key)
-            if not isinstance(realtime, RealtimeSession):
-                realtime = None
-            runtime = await host._service.runtime_state_for_thread(thread)
-            if not isinstance(runtime, CodexRuntimeState):
-                runtime = CodexRuntimeState()
-            await host._send_text(
-                context,
-                render_status(
-                    _logical_thread_name(thread),
-                    settings,
-                    pending,
-                    realtime,
-                    runtime=runtime,
-                ),
-            )
-            return True
         if name in {"resetparams", "clearparams"}:
             settings = await host._service.clear_overrides(thread_id)
             await host._send_text(
-                context, "Session overrides cleared.\n" + render_settings(settings)
+                context,
+                "Session overrides cleared.\n" + render_settings(settings),
+                parse_mode="HTML",
             )
             return True
         if name in {"dir", "cd", "cwd"}:
@@ -425,7 +404,9 @@ class TelegramCommandExecutor:
             except ValueError as exc:
                 await host._send_text(context, COMMAND_FAILURE_PREFIX + str(exc))
                 return True
-            await host._send_text(context, render_directory_state(state))
+            await host._send_text(
+                context, render_directory_state(state), parse_mode="HTML"
+            )
             return True
         if name == "project":
             if argument.strip():
@@ -441,7 +422,9 @@ class TelegramCommandExecutor:
             except ValueError as exc:
                 await host._send_text(context, COMMAND_FAILURE_PREFIX + str(exc))
                 return True
-            await host._send_text(context, render_project_state(project_state))
+            await host._send_text(
+                context, render_project_state(project_state), parse_mode="HTML"
+            )
             return True
         if name == "webhooks" or (name == "webhook" and argument.lower() == "list"):
             subscriptions = await host._service.list_webhook_subscriptions(
@@ -451,6 +434,7 @@ class TelegramCommandExecutor:
                 context,
                 render_webhooks(subscriptions),
                 reply_markup=await host._webhooks_markup(context, subscriptions),
+                parse_mode="HTML",
             )
             return True
         if name == "webhook":
@@ -479,7 +463,9 @@ class TelegramCommandExecutor:
             if not argument:
                 settings = await host._service.get_settings(thread_id, context.chat_key)
                 await host._send_text(
-                    context, render_single_setting(field_name, settings)
+                    context,
+                    render_single_setting(field_name, settings),
+                    parse_mode="HTML",
                 )
                 return True
             if argument == "default":
@@ -490,17 +476,25 @@ class TelegramCommandExecutor:
                 settings = await host._service.update_override(
                     thread_id, field_name, argument
                 )
-            await host._send_text(context, render_single_setting(field_name, settings))
+            await host._send_text(
+                context,
+                render_single_setting(field_name, settings),
+                parse_mode="HTML",
+            )
             return True
         if name == "fast":
             if not argument:
                 settings = await host._service.get_settings(thread_id, context.chat_key)
-                await host._send_text(context, render_single_setting(name, settings))
+                await host._send_text(
+                    context, render_single_setting(name, settings), parse_mode="HTML"
+                )
                 return True
             normalized = argument.lower()
             enabled = normalized in {"on", "true", "1", "yes"}
             settings = await host._service.set_fast_mode(thread_id, enabled)
-            await host._send_text(context, render_single_setting(name, settings))
+            await host._send_text(
+                context, render_single_setting(name, settings), parse_mode="HTML"
+            )
             return True
         return False
 
@@ -510,7 +504,9 @@ class TelegramCommandExecutor:
         try:
             if not stripped or stripped.casefold() == "status":
                 goal = await host._service.get_goal(context.chat_key)
-                await host._send_text(context, render_goal_status(goal))
+                await host._send_text(
+                    context, render_goal_status(goal), parse_mode="HTML"
+                )
                 return True
             folded = stripped.casefold()
             if folded == "clear":
@@ -522,14 +518,18 @@ class TelegramCommandExecutor:
                     context.chat_key,
                     "paused",
                 )
-                await host._send_text(context, render_goal_status(goal))
+                await host._send_text(
+                    context, render_goal_status(goal), parse_mode="HTML"
+                )
                 return True
             if folded == "resume":
                 goal = await host._service.update_goal_status(
                     context.chat_key,
                     "active",
                 )
-                await host._send_text(context, render_goal_status(goal))
+                await host._send_text(
+                    context, render_goal_status(goal), parse_mode="HTML"
+                )
                 return True
 
             parsed = _parse_goal_argument(stripped)
@@ -556,7 +556,7 @@ class TelegramCommandExecutor:
         except ValueError as exc:
             await host._send_text(context, COMMAND_FAILURE_PREFIX + str(exc))
             return True
-        await host._send_text(context, render_goal_status(goal))
+        await host._send_text(context, render_goal_status(goal), parse_mode="HTML")
         return True
 
     async def _handle_plan(
@@ -573,13 +573,17 @@ class TelegramCommandExecutor:
                 "default",
             )
             await host._send_text(
-                context, "Plan mode off.\n" + render_settings(settings)
+                context,
+                "Plan mode off.\n" + render_settings(settings),
+                parse_mode="HTML",
             )
             return True
         settings = await host._service.set_collaboration_mode(context.chat_key, "plan")
         if not prompt:
             await host._send_text(
-                context, "Plan mode on.\n" + render_settings(settings)
+                context,
+                "Plan mode on.\n" + render_settings(settings),
+                parse_mode="HTML",
             )
             return True
         async with host._typing_loop(context, thread_id=thread_id):
@@ -799,6 +803,7 @@ class TelegramCommandExecutor:
                     event_secret=created.event_secret,
                     event_url=host._webhook_event_url(created.subscription.webhook_id),
                 ),
+                parse_mode="HTML",
             )
             return True
         if action in {"revoke", "delete", "remove"}:

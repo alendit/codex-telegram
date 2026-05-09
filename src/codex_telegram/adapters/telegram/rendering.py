@@ -61,13 +61,12 @@ TELEGRAM_COMMAND_SPECS: tuple[tuple[str, str], ...] = (
     ("attach_thread", "Attach this chat to a Codex thread"),
     ("focus", "Focus a conversation shortcut"),
     ("to", "Send one message to a conversation"),
-    ("current", "Show the focused conversation and effective settings"),
+    ("current", "Show focused conversation status and effective settings"),
     ("history", "Show recent user and assistant history"),
     ("overview", "Show the conversation overview"),
     ("help", "Show supported bot commands"),
     ("usage", "Show usage and account-limit visibility"),
     ("interrupt", "Interrupt the currently running turn"),
-    ("status", "Show current conversation settings and approval state"),
     ("resetparams", "Clear all runtime overrides for this conversation"),
     ("profile", "Get or set the active profile"),
     ("model", "Get or set the active model"),
@@ -333,37 +332,42 @@ def _render_runtime_state_lines(runtime: CodexRuntimeState) -> list[str]:
     lines: list[str] = []
     if runtime.goal is not None:
         lines.append(
-            f"Goal: {escape(runtime.goal.objective)} ({escape(runtime.goal.status)})"
+            f"<b>Goal</b> {escape(runtime.goal.objective)} "
+            f"(<i>{escape(runtime.goal.status)}</i>)"
         )
     if runtime.plan_items:
-        lines.append("Plan:")
+        lines.append("<b>Plan</b>")
         for item in runtime.plan_items[:5]:
             lines.append(
-                f"- [{escape(_plan_status_label(item.status))}] {escape(item.step)}"
+                f"• [{escape(_plan_status_label(item.status))}] {escape(item.step)}"
             )
         omitted = len(runtime.plan_items) - 5
         if omitted > 0:
             suffix = "" if omitted == 1 else "s"
-            lines.append(f"- ... {omitted} more step{suffix}")
+            lines.append(f"• ... {omitted} more step{suffix}")
     return lines
 
 
 def render_goal_status(goal: CodexGoal | None) -> str:
     """Render the focused thread's Codex goal."""
     if goal is None:
-        return "No active goal."
-    lines = [f"Goal: {escape(goal.objective)}", f"Status: {escape(goal.status)}"]
+        return "<b>Goal</b>\nNo active goal."
+    lines = [
+        "<b>Goal</b>",
+        f"<b>Objective</b> {escape(goal.objective)}",
+        f"<b>Status</b> {escape(goal.status)}",
+    ]
     tokens_used = goal.tokens_used or 0
     if goal.token_budget is not None:
-        lines.append(f"Tokens: {tokens_used} / {goal.token_budget}")
+        lines.append(f"<b>Tokens</b> {tokens_used} / {goal.token_budget}")
     elif goal.tokens_used is not None:
-        lines.append(f"Tokens: {goal.tokens_used}")
+        lines.append(f"<b>Tokens</b> {goal.tokens_used}")
     if goal.elapsed_seconds is not None:
-        lines.append(f"Elapsed: {goal.elapsed_seconds:g}s")
+        lines.append(f"<b>Elapsed</b> {goal.elapsed_seconds:g}s")
     if goal.created_at:
-        lines.append(f"Created: {escape(goal.created_at)}")
+        lines.append(f"<b>Created</b> <code>{escape(goal.created_at)}</code>")
     if goal.updated_at:
-        lines.append(f"Updated: {escape(goal.updated_at)}")
+        lines.append(f"<b>Updated</b> <code>{escape(goal.updated_at)}</code>")
     return "\n".join(lines)
 
 
@@ -371,9 +375,9 @@ def render_usage(state: UsageState) -> str:
     """Render account and focused-thread usage visibility."""
     lines = [
         "<b>Usage</b>",
-        f"Conversation: {escape(_display_name(state.conversation_name))}",
-        f"Connection: <code>{escape(state.backend_id)}</code>",
-        f"Codex thread: {'attached' if state.codex_thread_attached else 'unattached'}",
+        f"<b>Conversation</b> {escape(_display_name(state.conversation_name))}",
+        f"<b>Connection</b> <code>{escape(state.backend_id)}</code>",
+        f"<b>Codex thread</b> {'attached' if state.codex_thread_attached else 'unattached'}",
         "",
     ]
     lines.extend(_render_account_usage_lines(state))
@@ -396,7 +400,7 @@ def _render_account_usage_lines(state: UsageState) -> list[str]:
     account = state.account
     if account.status != "available" or not account.limits:
         reason = account.reason or account.status
-        return ["<b>Account limits</b>", f"Unavailable: {escape(reason)}"]
+        return ["<b>Account limits</b>", f"<b>Unavailable</b> {escape(reason)}"]
     lines = ["<b>Account limits</b>"]
     for limit in account.limits:
         lines.extend(_render_account_usage_limit_lines(limit))
@@ -420,11 +424,11 @@ def _render_account_usage_limit_lines(limit: AccountUsageLimit) -> list[str]:
     if not parts and limit.window_minutes is not None:
         parts.append(f"window {_format_usage_number(limit.window_minutes)}m")
     if not parts:
-        lines = [escape(limit.label)]
+        lines = [f"<b>{escape(limit.label)}</b>"]
     else:
-        lines = [f"{escape(limit.label)}: " + ", ".join(parts)]
+        lines = [f"<b>{escape(limit.label)}</b> " + ", ".join(parts)]
     if limit.resets_at:
-        lines.append(f"Resets: <code>{escape(limit.resets_at)}</code>")
+        lines.append(f"<b>Resets</b> <code>{escape(limit.resets_at)}</code>")
     return lines
 
 
@@ -447,7 +451,7 @@ def _render_token_usage_section(
         ("reasoning_output_tokens", "Reasoning"),
     )
     lines.extend(
-        f"{label}: {_format_usage_number(token_usage[key])}"
+        f"<b>{label}</b> {_format_usage_number(token_usage[key])}"
         for key, label in labels
         if key in token_usage
     )
@@ -478,7 +482,7 @@ def _render_runtime_metrics_lines(state: UsageState) -> list[str]:
         if not lines:
             lines.append("<b>Runtime metrics</b>")
         lines.append(
-            f"Context window: {_format_usage_number(metrics.model_context_window)}"
+            f"<b>Context window</b> {_format_usage_number(metrics.model_context_window)}"
         )
     return lines
 
@@ -734,8 +738,8 @@ def render_codex_thread_attached(connection: ConversationAttachment) -> str:
     )
     return "\n".join(
         [
-            COMMAND_SUCCESS_PREFIX + f"Attached Codex thread {title}.",
-            f"Conversation: {title}",
+            COMMAND_SUCCESS_PREFIX + f"<b>Attached Codex thread</b> {escape(title)}",
+            f"<b>Conversation</b> {escape(title)}",
         ]
     )
 
@@ -744,17 +748,17 @@ def render_settings(settings: EffectiveSettings) -> str:
     """Render effective settings."""
     return "\n".join(
         [
-            f"Profile: {settings.profile}",
-            f"Model: {settings.model}",
-            f"Provider: {settings.model_provider}",
-            f"Effort: {settings.effort}",
-            f"Summary: {settings.summary}",
-            f"CWD: {settings.cwd or '(default)'}",
-            f"Fast mode: {'on' if settings.fast_mode else 'off'}",
-            f"Verbosity: {settings.verbosity}",
-            f"Command verbosity: {settings.command_verbosity}",
-            f"Follow-up mode: {settings.followup_mode}",
-            f"Mode: {settings.collaboration_mode}",
+            f"<b>Profile</b> {escape(settings.profile)}",
+            f"<b>Model</b> <code>{escape(settings.model)}</code>",
+            f"<b>Provider</b> {escape(settings.model_provider)}",
+            f"<b>Effort</b> {escape(settings.effort)}",
+            f"<b>Summary</b> {escape(settings.summary)}",
+            f"<b>CWD</b> <code>{escape(settings.cwd or '(default)')}</code>",
+            f"<b>Fast mode</b> {'on' if settings.fast_mode else 'off'}",
+            f"<b>Verbosity</b> {escape(settings.verbosity)}",
+            f"<b>Command verbosity</b> {escape(settings.command_verbosity)}",
+            f"<b>Follow-up mode</b> {escape(settings.followup_mode)}",
+            f"<b>Mode</b> {escape(settings.collaboration_mode)}",
         ]
     )
 
@@ -764,19 +768,20 @@ def render_current_thread(current: CurrentThreadState) -> str:
     thread = current.thread
     status = "running" if thread.awaiting_reply or thread.pending_turn_id else "idle"
     lines = [
-        f"Conversation: {_logical_thread_name(thread)}",
-        f"Connection: {thread.codex_backend_id or '(default)'}",
-        f"Codex thread: {'attached' if thread.codex_thread_id else 'unattached'}",
-        f"Status: {status}",
-        f"Turns: {thread.turn_count}",
+        f"<b>Conversation</b> {escape(_logical_thread_name(thread))}",
+        f"<b>Connection</b> {escape(thread.codex_backend_id or '(default)')}",
+        f"<b>Codex thread</b> {'attached' if thread.codex_thread_id else 'unattached'}",
+        f"<b>Status</b> {status}",
+        f"<b>Turns</b> {thread.turn_count}",
         render_settings(current.settings),
     ]
     if current.pending is not None:
         lines.append(
-            f"Pending approval: {current.pending.command or current.pending.method}"
+            "<b>Pending approval</b> "
+            + escape(current.pending.command or current.pending.method)
         )
     if current.realtime is not None:
-        lines.append(f"Realtime: active ({current.realtime.status})")
+        lines.append(f"<b>Realtime</b> active ({escape(current.realtime.status)})")
     lines.extend(_render_runtime_state_lines(current.runtime))
     return "\n".join(lines)
 
@@ -784,17 +789,17 @@ def render_current_thread(current: CurrentThreadState) -> str:
 def render_directory_state(state: DirectoryState) -> str:
     """Render current directory and recent history."""
     lines = [
-        f"Conversation: {_logical_thread_name(state.thread)}",
-        f"Current directory: {state.current_path or '(profile default)'}",
+        f"<b>Conversation</b> {escape(_logical_thread_name(state.thread))}",
+        f"<b>Current directory</b> <code>{escape(state.current_path or '(profile default)')}</code>",
     ]
     if not state.history:
-        lines.append("History: (empty)")
+        lines.append("<b>History</b> (empty)")
         lines.append("Use /dir <path>, /dir -, /dir <index>, or /dir reset.")
         return "\n".join(lines)
-    lines.append("Recent directories:")
+    lines.append("<b>Recent directories</b>")
     for index, entry in enumerate(state.history, start=1):
-        marker = "*" if entry.path == state.current_path else "-"
-        lines.append(f"{marker} {index}. {entry.path}")
+        suffix = " (current)" if entry.path == state.current_path else ""
+        lines.append(f"• <b>{index}.</b> <code>{escape(entry.path)}</code>{suffix}")
     lines.append("Use /dir <path>, /dir -, /dir <index>, or /dir reset.")
     return "\n".join(lines)
 
@@ -802,43 +807,49 @@ def render_directory_state(state: DirectoryState) -> str:
 def render_project_state(state: ProjectState) -> str:
     """Render the active Project binding and project-scoped config."""
     lines = [
-        f"Conversation: {_logical_thread_name(state.thread)}",
-        "Active project: "
+        f"<b>Conversation</b> {escape(_logical_thread_name(state.thread))}",
+        "<b>Active project</b> "
         + (_render_project_ref(state.active) if state.active is not None else "(none)"),
     ]
     if state.active is not None:
-        lines.append(f"Root: {state.active.root_path}")
-        lines.append(f"Connection: {state.active.connection_id}")
-        lines.append(f"Label: {state.active.label}")
-    lines.append("Project config:")
-    lines.append(f"Model: {state.project_overrides.model or '(default)'}")
-    lines.append(f"Effort: {state.project_overrides.effort or '(default)'}")
+        lines.append(f"<b>Root</b> <code>{escape(state.active.root_path)}</code>")
+        lines.append(f"<b>Connection</b> {escape(state.active.connection_id)}")
+        lines.append(f"<b>Label</b> {escape(state.active.label)}")
+    lines.append("<b>Project config</b>")
+    lines.append(
+        f"• <b>Model</b> <code>{escape(state.project_overrides.model or '(default)')}</code>"
+    )
+    lines.append(
+        f"• <b>Effort</b> {escape(state.project_overrides.effort or '(default)')}"
+    )
     fast_mode = state.project_overrides.fast_mode
     lines.append(
-        "Fast mode: "
+        "• <b>Fast mode</b> "
         + ("(default)" if fast_mode is None else "on" if fast_mode else "off")
     )
     return "\n".join(lines)
 
 
 def _render_project_ref(project: Project) -> str:
-    return f"{project.connection_id}:{project.label} -> {project.root_path}"
+    return (
+        f"{escape(project.connection_id)}:{escape(project.label)}"
+        f" -&gt; <code>{escape(project.root_path)}</code>"
+    )
 
 
 def render_webhooks(subscriptions: list[WebhookSubscription]) -> str:
     """Render webhook subscriptions for one chat."""
     if not subscriptions:
         return (
-            "No webhook subscriptions for this chat. "
+            "<b>Webhooks</b>\nNo webhook subscriptions for this chat. "
             "Use /webhook create <name> to bind one to the focused conversation."
         )
-    lines = ["Webhook subscriptions:"]
+    lines = ["<b>Webhook subscriptions</b>"]
     for subscription in subscriptions:
         status = "enabled" if subscription.enabled else "disabled"
         trigger_unit = "trigger" if subscription.trigger_count == 1 else "triggers"
         lines.append(
-            "- "
-            + f"{subscription.name}  "
+            f"• <b>{escape(subscription.name)}</b> "
             + f"({status}, {subscription.trigger_count} {trigger_unit})"
         )
     lines.append("Use /webhook revoke <id-or-name> to disable one.")
@@ -855,10 +866,10 @@ def render_webhook_created(
     return "\n".join(
         [
             COMMAND_SUCCESS_PREFIX
-            + f"Created webhook {subscription.name} for the focused conversation.",
-            f"ID: {subscription.webhook_id}",
-            f"Event URL: {event_url}",
-            f"Bearer secret (shown once): {event_secret}",
+            + f"<b>Created webhook</b> {escape(subscription.name)}",
+            f"<b>ID</b> <code>{escape(subscription.webhook_id)}</code>",
+            f"<b>Event URL</b> <code>{escape(event_url)}</code>",
+            f"<b>Bearer secret</b> <code>{escape(event_secret)}</code> (shown once)",
         ]
     )
 
@@ -866,8 +877,8 @@ def render_webhook_created(
 def render_single_setting(name: str, settings: EffectiveSettings) -> str:
     """Render one setting after mutation or query."""
     if name == "fast":
-        return f"Fast mode: {'on' if settings.fast_mode else 'off'}"
-    return f"{name}: {getattr(settings, name)}"
+        return f"<b>Fast mode</b> {'on' if settings.fast_mode else 'off'}"
+    return f"<b>{escape(name)}</b> {escape(str(getattr(settings, name)))}"
 
 
 def render_status(
@@ -880,13 +891,15 @@ def render_status(
 ) -> str:
     """Render a compact status message."""
     lines = [
-        f"Conversation: {_display_name(conversation_name)}",
+        f"<b>Conversation</b> {escape(_display_name(conversation_name))}",
         render_settings(settings),
     ]
     if pending is not None:
-        lines.append(f"Pending approval: {pending.command or pending.method}")
+        lines.append(
+            "<b>Pending approval</b> " + escape(pending.command or pending.method)
+        )
     if isinstance(realtime, RealtimeSession):
-        lines.append(f"Realtime: active ({realtime.status})")
+        lines.append(f"<b>Realtime</b> active ({escape(realtime.status)})")
     if runtime is not None:
         lines.extend(_render_runtime_state_lines(runtime))
     return "\n".join(lines)
@@ -895,29 +908,34 @@ def render_status(
 def render_approval_request(pending: PendingApproval) -> str:
     """Render a Telegram-facing approval prompt."""
     command = pending.command or "(no command text)"
-    lines = [WARNING_PREFIX + f"Codex needs approval: {command}"]
+    lines = [
+        WARNING_PREFIX + "<b>Codex needs approval</b>",
+        f"<b>Command</b> <code>{escape(command)}</code>",
+    ]
     if pending.reason:
-        lines.append(f"Reason: {pending.reason}")
+        lines.append(f"<b>Reason</b> {escape(pending.reason)}")
     if pending.message and pending.message != pending.reason:
-        lines.append(f"Guardian: {pending.message}")
+        lines.append(f"<b>Guardian</b> {escape(pending.message)}")
     return "\n".join(lines)
 
 
 def render_user_input_request(pending: PendingUserInput) -> str:
     """Render a Telegram-facing user-input prompt."""
-    lines = [WARNING_PREFIX + "Codex needs your input."]
+    lines = [WARNING_PREFIX + "<b>Codex needs your input</b>"]
     for index, question in enumerate(pending.questions, start=1):
         prefix = f"{index}. " if len(pending.questions) > 1 else ""
-        header = f"{question.header}: " if question.header else ""
-        lines.append(prefix + header + question.question)
+        header = f"<b>{escape(question.header)}</b> " if question.header else ""
+        lines.append(prefix + header + escape(question.question))
         selected = pending.selected_answers.get(question.question_id)
         if selected:
-            lines.append("Selected: " + ", ".join(selected))
+            lines.append("<b>Selected</b> " + escape(", ".join(selected)))
         elif pending.awaiting_free_text_question_id == question.question_id:
-            lines.append("Waiting for custom answer text.")
+            lines.append("<b>Waiting</b> for custom answer text.")
         for option in question.options:
             if option.description:
-                lines.append(f"- {option.label}: {option.description}")
+                lines.append(
+                    f"• <b>{escape(option.label)}</b> {escape(option.description)}"
+                )
     return "\n".join(lines)
 
 
@@ -934,12 +952,12 @@ def render_history(history: ThreadHistory) -> str:
     """Render recent compact thread history."""
     title = _logical_thread_name(history.thread)
     if not history.entries:
-        return f"No saved history for conversation {title} yet."
-    lines = [f"Recent history for conversation {title}:"]
+        return f"<b>History</b>\nNo saved history for conversation {escape(title)} yet."
+    lines = [f"<b>Recent history</b> {escape(title)}"]
     for entry in history.entries:
         lines.append(
-            f"{_thread_message_label(entry, assistant_label='Assistant')}: "
-            f"{_short_line(entry.text)}"
+            f"<b>{escape(_thread_message_label(entry, assistant_label='Assistant'))}</b> "
+            f"{escape(_short_line(entry.text))}"
         )
     return "\n".join(lines)
 
@@ -1058,11 +1076,14 @@ def render_mcp_servers(
 
 def render_help() -> str:
     """Render Telegram command help from the published catalog."""
-    lines = ["Supported commands:"]
+    lines = ["<b>Supported commands</b>"]
     for command in telegram_bot_commands():
-        lines.append(f"/{command.command} - {command.description}")
+        lines.append(
+            f"• <code>/{escape(command.command)}</code> - {escape(command.description)}"
+        )
     lines.append(
-        "Aliases: /abort and /stop map to /interrupt; /cd and /cwd map to /dir."
+        "<b>Aliases</b> /abort and /stop map to /interrupt; "
+        "/cd and /cwd map to /dir."
     )
     return "\n".join(lines)
 

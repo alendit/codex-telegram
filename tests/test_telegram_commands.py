@@ -299,7 +299,7 @@ async def test_command_executor_renders_usage_state() -> None:
     assert host.sent_parse_modes[-1] == "HTML"
     assert "<b>Usage</b>" in host.sent_texts[-1]
     assert "<b>Latest turn</b>" in host.sent_texts[-1]
-    assert "Total: 42" in host.sent_texts[-1]
+    assert "<b>Total</b> 42" in host.sent_texts[-1]
 
 
 @pytest.mark.asyncio

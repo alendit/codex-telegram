@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
-from collections.abc import AsyncIterator, Coroutine
+from collections.abc import AsyncIterator, Coroutine, Sequence
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from html import escape
 import json
@@ -156,6 +156,8 @@ LOGGER = get_logger(__name__)
 THOUGHT_BALLOON_PREFIX = "💭 "
 FINAL_MESSAGE_PREFIX = "✅ "
 CODEX_THREADS_FULL_LIMIT = 50
+RECENT_PICKER_LIMIT = 5
+EXPANDED_PICKER_LIMIT = 20
 IDLE_WRAP_POLL_SECONDS = 30.0
 RESUMING_PREVIOUS_CONVERSATION_NOTICE = "Resuming previous conversation..."
 
@@ -643,7 +645,7 @@ class TelegramBotRunner:
         text = render_user_input_request(pending)
         markup = await self._user_input_markup(context, pending)
         if message_id is None:
-            await self._send_text(context, text, reply_markup=markup)
+            await self._send_text(context, text, reply_markup=markup, parse_mode="HTML")
             return
         try:
             await self._edit_text(
@@ -651,6 +653,7 @@ class TelegramBotRunner:
                 message_id=message_id,
                 text=text,
                 reply_markup=markup,
+                parse_mode="HTML",
             )
         except Exception as err:
             if not _telegram_message_not_modified(err):
@@ -1099,6 +1102,7 @@ class TelegramBotRunner:
             context,
             render_approval_request(pending),
             reply_markup=await self._approval_markup(context, pending),
+            parse_mode="HTML",
         )
         await self._sync_thread_status_card(context)
 
@@ -1112,6 +1116,7 @@ class TelegramBotRunner:
             context,
             render_user_input_request(pending),
             reply_markup=await self._user_input_markup(context, pending),
+            parse_mode="HTML",
         )
         await self._sync_thread_status_card(context)
 
@@ -1638,13 +1643,15 @@ class TelegramBotRunner:
         connection_id: str | None,
         connection_label: str,
         include_all: bool,
+        expanded: bool = False,
     ) -> None:
+        limit = _recent_picker_request_limit(expanded)
         async with self._typing_loop(context):
             projects = await self._service.list_recent_projects(
                 chat_key=context.chat_key,
                 connection_id=connection_id,
                 include_all=include_all,
-                limit=5,
+                limit=limit,
             )
         payload_base: dict[str, object] = {
             "connection_label": connection_label,
@@ -1652,6 +1659,7 @@ class TelegramBotRunner:
         }
         if connection_id is not None:
             payload_base["connection_id"] = connection_id
+        visible_projects = _visible_recent_items(projects, expanded=expanded)
         rows: list[list[tuple[str, str, dict[str, object]]]] = [
             [
                 (
@@ -1663,8 +1671,15 @@ class TelegramBotRunner:
                     },
                 )
             ]
-            for project in projects
+            for project in visible_projects
         ]
+        if _has_more_recent_items(projects, expanded=expanded):
+            more_action = (
+                "codex_threads_recent_projects"
+                if include_all and connection_id is None
+                else "codex_threads_connection"
+            )
+            rows.append([("More", more_action, {**payload_base, "expanded": True})])
         rows.append(
             [
                 (
@@ -1687,43 +1702,74 @@ class TelegramBotRunner:
         connection_id: str | None,
         include_all: bool,
         project_id: str | None,
+        expanded: bool = False,
     ) -> None:
+        limit = _recent_picker_request_limit(expanded)
         async with self._typing_loop(context):
             codex_listing = await self._service.list_codex_threads(
                 context.chat_key,
                 backend_id=connection_id,
                 include_all=include_all,
                 project_id=project_id,
-                limit=5,
+                limit=limit,
             )
+        visible_groups = _visible_codex_thread_groups(
+            codex_listing.groups,
+            expanded=expanded,
+        )
         connect_commands = await self._codex_thread_text_shortcuts(
             context,
-            codex_listing.groups,
+            visible_groups,
         )
         listing = build_codex_thread_listing(
-            codex_listing.groups,
+            visible_groups,
             failures=codex_listing.failures,
             connect_commands=connect_commands,
             full=True,
         )
+        payload: dict[str, object] = {
+            "include_all": include_all,
+            "expanded": True,
+        }
+        if connection_id is not None:
+            payload["connection_id"] = connection_id
+        if project_id is not None:
+            payload["project_id"] = project_id
         await self._send_text(
             context,
             listing.text,
             parse_mode="HTML",
+            reply_markup=await self._more_markup(
+                context,
+                action="codex_threads_project",
+                payload=payload,
+                visible_groups=codex_listing.groups,
+                expanded=expanded,
+            ),
         )
 
-    async def _send_recent_codex_threads(self, context: ChatContext) -> None:
+    async def _send_recent_codex_threads(
+        self,
+        context: ChatContext,
+        *,
+        expanded: bool = False,
+    ) -> None:
+        limit = _recent_picker_request_limit(expanded)
         async with self._typing_loop(context):
             codex_listing = await self._service.list_recent_codex_threads(
                 context.chat_key,
-                limit=5,
+                limit=limit,
             )
+        visible_groups = _visible_codex_thread_groups(
+            codex_listing.groups,
+            expanded=expanded,
+        )
         connect_commands = await self._codex_thread_text_shortcuts(
             context,
-            codex_listing.groups,
+            visible_groups,
         )
         listing = build_recent_codex_thread_listing(
-            codex_listing.groups,
+            visible_groups,
             failures=codex_listing.failures,
             connect_commands=connect_commands,
         )
@@ -1731,14 +1777,28 @@ class TelegramBotRunner:
             context,
             listing.text,
             parse_mode="HTML",
+            reply_markup=await self._more_markup(
+                context,
+                action="codex_threads_recent",
+                payload={"expanded": True},
+                visible_groups=codex_listing.groups,
+                expanded=expanded,
+            ),
         )
 
-    async def _send_recent_new_projects(self, context: ChatContext) -> None:
+    async def _send_recent_new_projects(
+        self,
+        context: ChatContext,
+        *,
+        expanded: bool = False,
+    ) -> None:
+        limit = _recent_picker_request_limit(expanded)
         projects = await self._service.list_recent_projects(
             chat_key=context.chat_key,
             include_all=True,
-            limit=5,
+            limit=limit,
         )
+        visible_projects = _visible_recent_items(projects, expanded=expanded)
         rows: list[list[tuple[str, str, dict[str, object]]]] = [
             [
                 (
@@ -1747,8 +1807,10 @@ class TelegramBotRunner:
                     {"project_id": project.project_id},
                 )
             ]
-            for project in projects
+            for project in visible_projects
         ]
+        if _has_more_recent_items(projects, expanded=expanded):
+            rows.append([("More", "new_recent_projects", {"expanded": True})])
         await self._send_text(
             context,
             "Choose a recent project.",
@@ -1789,13 +1851,16 @@ class TelegramBotRunner:
         *,
         connection_id: str,
         connection_label: str,
+        expanded: bool = False,
     ) -> None:
+        limit = _recent_picker_request_limit(expanded)
         projects = await self._service.list_recent_projects(
             chat_key=context.chat_key,
             connection_id=connection_id,
             include_all=False,
-            limit=5,
+            limit=limit,
         )
+        visible_projects = _visible_recent_items(projects, expanded=expanded)
         rows: list[list[tuple[str, str, dict[str, object]]]] = [
             [
                 (
@@ -1804,8 +1869,22 @@ class TelegramBotRunner:
                     {"project_id": project.project_id},
                 )
             ]
-            for project in projects
+            for project in visible_projects
         ]
+        if _has_more_recent_items(projects, expanded=expanded):
+            rows.append(
+                [
+                    (
+                        "More",
+                        "new_connection",
+                        {
+                            "connection_id": connection_id,
+                            "connection_label": connection_label,
+                            "expanded": True,
+                        },
+                    )
+                ]
+            )
         await self._send_text(
             context,
             f"Choose a project on {connection_label}.",
@@ -1994,6 +2073,19 @@ class TelegramBotRunner:
             ],
         )
 
+    async def _more_markup(
+        self,
+        context: ChatContext,
+        *,
+        action: str,
+        payload: dict[str, object],
+        visible_groups: list[CodexThreadGroup],
+        expanded: bool,
+    ) -> InlineKeyboardMarkup | None:
+        if not _has_more_codex_thread_items(visible_groups, expanded=expanded):
+            return None
+        return await self._callback_markup(context, [[("More", action, payload)]])
+
     async def _callback_markup(
         self,
         context: ChatContext,
@@ -2161,10 +2253,9 @@ class TelegramBotRunner:
         log_error(LOGGER, "telegram_runtime_error_sent", v={"summary": summary})
         await self._send_noncritical_text(
             context,
-            WARNING_PREFIX
-            + "Message handling failed before reaching Codex: "
-            + summary,
+            WARNING_PREFIX + "<b>Message handling failed</b>\n" + escape(summary),
             event_name="telegram_runtime_error_throttled",
+            parse_mode="HTML",
         )
 
     async def _notify_interrupted_threads(self) -> None:
@@ -2425,6 +2516,57 @@ class TelegramBotRunner:
             await self._sync_thread_status_card(context)
             return
         raise ValueError(f"Unsupported bridge-control job kind: {job.kind}")
+
+
+def _recent_picker_request_limit(expanded: bool) -> int:
+    return EXPANDED_PICKER_LIMIT if expanded else RECENT_PICKER_LIMIT + 1
+
+
+def _visible_recent_items(projects: list[Project], *, expanded: bool) -> list[Project]:
+    limit = EXPANDED_PICKER_LIMIT if expanded else RECENT_PICKER_LIMIT
+    return projects[:limit]
+
+
+def _has_more_recent_items(items: Sequence[object], *, expanded: bool) -> bool:
+    return not expanded and len(items) > RECENT_PICKER_LIMIT
+
+
+def _visible_codex_thread_groups(
+    groups: list[CodexThreadGroup],
+    *,
+    expanded: bool,
+) -> list[CodexThreadGroup]:
+    limit = EXPANDED_PICKER_LIMIT if expanded else RECENT_PICKER_LIMIT
+    return _trim_codex_thread_groups(groups, limit=limit)
+
+
+def _has_more_codex_thread_items(
+    groups: list[CodexThreadGroup],
+    *,
+    expanded: bool,
+) -> bool:
+    return not expanded and _codex_thread_count(groups) > RECENT_PICKER_LIMIT
+
+
+def _trim_codex_thread_groups(
+    groups: list[CodexThreadGroup],
+    *,
+    limit: int,
+) -> list[CodexThreadGroup]:
+    remaining = limit
+    trimmed: list[CodexThreadGroup] = []
+    for group in groups:
+        if remaining <= 0:
+            break
+        selected = group.threads[:remaining]
+        if selected:
+            trimmed.append(replace(group, threads=selected))
+            remaining -= len(selected)
+    return trimmed
+
+
+def _codex_thread_count(groups: list[CodexThreadGroup]) -> int:
+    return sum(len(group.threads) for group in groups)
 
 
 def _connection_label(connection: BackendConnection) -> str:

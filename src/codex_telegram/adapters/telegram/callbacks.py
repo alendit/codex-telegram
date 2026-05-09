@@ -96,11 +96,16 @@ class CallbackActionHost(Protocol):
         connection_id: str | None,
         connection_label: str,
         include_all: bool,
+        expanded: bool = False,
     ) -> None: ...
 
-    async def _send_recent_codex_threads(self, context: ChatContext) -> None: ...
+    async def _send_recent_codex_threads(
+        self, context: ChatContext, *, expanded: bool = False
+    ) -> None: ...
 
-    async def _send_recent_new_projects(self, context: ChatContext) -> None: ...
+    async def _send_recent_new_projects(
+        self, context: ChatContext, *, expanded: bool = False
+    ) -> None: ...
 
     async def _send_codex_threads_thread_picker(
         self,
@@ -109,6 +114,7 @@ class CallbackActionHost(Protocol):
         connection_id: str | None,
         include_all: bool,
         project_id: str | None,
+        expanded: bool = False,
     ) -> None: ...
 
     async def _send_codex_threads_connection_picker(
@@ -128,6 +134,7 @@ class CallbackActionHost(Protocol):
         *,
         connection_id: str,
         connection_label: str,
+        expanded: bool = False,
     ) -> None: ...
 
     async def _callback_markup(
@@ -204,10 +211,14 @@ class TelegramCallbackActionExecutor:
                 connection_id=_payload_str_or_none(token.payload, "connection_id"),
                 connection_label=_payload_str(token.payload, "connection_label"),
                 include_all=_payload_bool(token.payload, "include_all"),
+                expanded=_payload_bool(token.payload, "expanded"),
             )
             return
         if token.action == "codex_threads_recent":
-            await host._send_recent_codex_threads(context)
+            await host._send_recent_codex_threads(
+                context,
+                expanded=_payload_bool(token.payload, "expanded"),
+            )
             return
         if token.action == "codex_threads_recent_projects":
             await host._send_codex_threads_project_picker(
@@ -215,10 +226,14 @@ class TelegramCallbackActionExecutor:
                 connection_id=None,
                 connection_label="all connections",
                 include_all=True,
+                expanded=_payload_bool(token.payload, "expanded"),
             )
             return
         if token.action == "new_recent_projects":
-            await host._send_recent_new_projects(context)
+            await host._send_recent_new_projects(
+                context,
+                expanded=_payload_bool(token.payload, "expanded"),
+            )
             return
         if token.action == "codex_threads_project":
             await host._send_codex_threads_thread_picker(
@@ -226,6 +241,7 @@ class TelegramCallbackActionExecutor:
                 connection_id=_payload_str_or_none(token.payload, "connection_id"),
                 include_all=_payload_bool(token.payload, "include_all"),
                 project_id=_payload_str_or_none(token.payload, "project_id"),
+                expanded=_payload_bool(token.payload, "expanded"),
             )
             return
         if token.action == "show_threads":
@@ -233,7 +249,9 @@ class TelegramCallbackActionExecutor:
             return
         if token.action == "show_projects":
             project_state = await host._service.show_project_state(context.chat_key)
-            await host._send_text(context, render_project_state(project_state))
+            await host._send_text(
+                context, render_project_state(project_state), parse_mode="HTML"
+            )
             return
         if token.action == "new_default_project":
             thread = await host._service.new_thread_in_default_project(
@@ -249,6 +267,7 @@ class TelegramCallbackActionExecutor:
                 context,
                 connection_id=_payload_str(token.payload, "connection_id"),
                 connection_label=_payload_str(token.payload, "connection_label"),
+                expanded=_payload_bool(token.payload, "expanded"),
             )
             return
         if token.action == "new_project":
@@ -269,7 +288,9 @@ class TelegramCallbackActionExecutor:
                 codex_thread_id,
                 backend_id=codex_backend_id,
             )
-            await host._send_text(context, render_codex_thread_attached(connection))
+            await host._send_text(
+                context, render_codex_thread_attached(connection), parse_mode="HTML"
+            )
             await host._send_focus_final_messages(
                 context,
                 connection.bridge.bridge_id,

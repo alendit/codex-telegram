@@ -12,9 +12,11 @@ from codex_telegram.adapters.telegram.bot import (
     render_overview,
     render_conversations,
     render_codex_threads,
+    render_approval_request,
     render_skills,
     render_status,
     render_usage,
+    render_user_input_request,
     render_webhook_created,
     render_webhooks,
     render_project_state,
@@ -47,8 +49,12 @@ from codex_telegram.domain import (
     ConversationAnchor,
     DirectoryEntry,
     LogicalThread,
+    PendingApproval,
+    PendingUserInput,
     SessionOverrides,
     ThreadMessage,
+    UserInputOption,
+    UserInputQuestion,
     WebhookSubscription,
     Project,
 )
@@ -482,7 +488,9 @@ def test_render_overview_includes_active_goal() -> None:
         ),
     )
 
-    assert "Goal: Ship &lt;overview&gt; &amp; status improvements (active)" in rendered
+    assert (
+        "<b>Goal</b> Ship &lt;overview&gt; &amp; status improvements " "(<i>active</i>)"
+    ) in rendered
 
 
 def test_render_status_includes_active_goal() -> None:
@@ -510,7 +518,7 @@ def test_render_status_includes_active_goal() -> None:
         ),
     )
 
-    assert "Goal: Ship overview status improvements (active)" in rendered
+    assert "<b>Goal</b> Ship overview status improvements (<i>active</i>)" in rendered
 
 
 def test_render_overview_includes_plan_state() -> None:
@@ -528,9 +536,9 @@ def test_render_overview_includes_plan_state() -> None:
         ),
     )
 
-    assert "Plan:" in rendered
-    assert "- [done] Inspect status card" in rendered
-    assert "- [doing] Render plan state" in rendered
+    assert "<b>Plan</b>" in rendered
+    assert "• [done] Inspect status card" in rendered
+    assert "• [doing] Render plan state" in rendered
 
 
 def test_overview_action_anchors_excludes_focused_and_dormant_conversations() -> None:
@@ -711,7 +719,6 @@ def test_telegram_bot_commands_match_supported_command_surface() -> None:
         "help",
         "usage",
         "interrupt",
-        "status",
         "resetparams",
         "profile",
         "model",
@@ -858,15 +865,70 @@ def test_render_goal_status_includes_budget_usage_and_timestamps() -> None:
         )
     )
 
-    assert "Goal: Ship &lt;goal&gt; command" in rendered
-    assert "Status: paused" in rendered
-    assert "Tokens: 250 / 1000" in rendered
-    assert "Elapsed: 12.5s" in rendered
-    assert "Updated: 2026-05-06T00:01:00Z" in rendered
+    assert "<b>Objective</b> Ship &lt;goal&gt; command" in rendered
+    assert "<b>Status</b> paused" in rendered
+    assert "<b>Tokens</b> 250 / 1000" in rendered
+    assert "<b>Elapsed</b> 12.5s" in rendered
+    assert "<b>Updated</b> <code>2026-05-06T00:01:00Z</code>" in rendered
 
 
 def test_render_goal_status_handles_empty_goal() -> None:
-    assert render_goal_status(None) == "No active goal."
+    assert render_goal_status(None) == "<b>Goal</b>\nNo active goal."
+
+
+def test_render_approval_request_uses_html_labels_and_escapes_values() -> None:
+    rendered = render_approval_request(
+        PendingApproval(
+            request_id=7,
+            chat_key="chat:1",
+            logical_thread_id="thread-1",
+            codex_thread_id="codex-1",
+            turn_id="turn-1",
+            method="item/commandExecution/requestApproval",
+            command="uv run pytest <all>",
+            reason="Run tests & checks",
+            message="Guardian <ok>",
+        )
+    )
+
+    assert rendered == (
+        "⚠️ <b>Codex needs approval</b>\n"
+        "<b>Command</b> <code>uv run pytest &lt;all&gt;</code>\n"
+        "<b>Reason</b> Run tests &amp; checks\n"
+        "<b>Guardian</b> Guardian &lt;ok&gt;"
+    )
+
+
+def test_render_user_input_request_uses_html_labels_and_list_structure() -> None:
+    rendered = render_user_input_request(
+        PendingUserInput(
+            request_id=9,
+            chat_key="chat:1",
+            logical_thread_id="thread-1",
+            codex_thread_id="codex-1",
+            turn_id="turn-1",
+            method="request_user_input",
+            questions=(
+                UserInputQuestion(
+                    question_id="scope",
+                    header="Scope <type>",
+                    question="Which scope & why?",
+                    options=(
+                        UserInputOption(
+                            label="Native first",
+                            description="Use <native> path.",
+                        ),
+                    ),
+                ),
+            ),
+        )
+    )
+
+    assert rendered == (
+        "⚠️ <b>Codex needs your input</b>\n"
+        "<b>Scope &lt;type&gt;</b> Which scope &amp; why?\n"
+        "• <b>Native first</b> Use &lt;native&gt; path."
+    )
 
 
 def test_render_usage_shows_unavailable_account_limits_and_latest_tokens() -> None:
@@ -890,17 +952,17 @@ def test_render_usage_shows_unavailable_account_limits_and_latest_tokens() -> No
     )
 
     assert rendered.startswith("<b>Usage</b>\n")
-    assert "Conversation: Build &lt;status&gt;" in rendered
-    assert "Connection: <code>primary</code>" in rendered
-    assert "Codex thread: attached" in rendered
+    assert "<b>Conversation</b> Build &lt;status&gt;" in rendered
+    assert "<b>Connection</b> <code>primary</code>" in rendered
+    assert "<b>Codex thread</b> attached" in rendered
     assert "<b>Account limits</b>" in rendered
-    assert "Unavailable: app-server does not expose account limits" in rendered
+    assert "<b>Unavailable</b> app-server does not expose account limits" in rendered
     assert "<b>Latest turn</b>" in rendered
-    assert "Total: 1,230" in rendered
-    assert "Input: 1,200" in rendered
-    assert "Cached: 400" in rendered
-    assert "Output: 30" in rendered
-    assert "Reasoning: 10" in rendered
+    assert "<b>Total</b> 1,230" in rendered
+    assert "<b>Input</b> 1,200" in rendered
+    assert "<b>Cached</b> 400" in rendered
+    assert "<b>Output</b> 30" in rendered
+    assert "<b>Reasoning</b> 10" in rendered
 
 
 def test_render_usage_shows_account_rate_limits_and_runtime_metrics() -> None:
@@ -943,15 +1005,15 @@ def test_render_usage_shows_account_rate_limits_and_runtime_metrics() -> None:
     )
 
     assert "<b>Account limits</b>" in rendered
-    assert "5h limit: 22.5% used" in rendered
-    assert "Resets: <code>2026-05-07T16:31:48Z</code>" in rendered
-    assert "Weekly limit: 53% used" in rendered
+    assert "<b>5h limit</b> 22.5% used" in rendered
+    assert "<b>Resets</b> <code>2026-05-07T16:31:48Z</code>" in rendered
+    assert "<b>Weekly limit</b> 53% used" in rendered
     assert "<b>Runtime totals</b>" in rendered
-    assert "Total: 160" in rendered
-    assert "Input: 120" in rendered
+    assert "<b>Total</b> 160" in rendered
+    assert "<b>Input</b> 120" in rendered
     assert "<b>Runtime last turn</b>" in rendered
-    assert "Total: 57" in rendered
-    assert "Context window: 258,400" in rendered
+    assert "<b>Total</b> 57" in rendered
+    assert "<b>Context window</b> 258,400" in rendered
 
 
 def test_render_usage_handles_unattached_thread_without_token_usage() -> None:
@@ -969,7 +1031,7 @@ def test_render_usage_handles_unattached_thread_without_token_usage() -> None:
         )
     )
 
-    assert "Codex thread: unattached" in rendered
+    assert "<b>Codex thread</b> unattached" in rendered
     assert "<b>Latest turn</b>" in rendered
     assert "No token usage recorded for this conversation yet." in rendered
 
@@ -994,7 +1056,7 @@ def test_render_status_includes_collaboration_mode() -> None:
         pending=None,
     )
 
-    assert "Mode: plan" in rendered
+    assert "<b>Mode</b> plan" in rendered
 
 
 def test_render_webhooks_lists_bound_threads() -> None:
@@ -1017,7 +1079,7 @@ def test_render_webhooks_lists_bound_threads() -> None:
         ]
     )
 
-    assert "Webhook subscriptions:" in rendered
+    assert "<b>Webhook subscriptions</b>" in rendered
     assert "front-door" in rendered
     assert "wh_123" not in rendered
     assert "anchor-1" not in rendered
@@ -1045,7 +1107,7 @@ def test_render_webhook_created_shows_secret_once_and_event_url() -> None:
         event_url="https://codex.example/events/wh_123",
     )
 
-    assert "Created webhook front-door" in rendered
+    assert "<b>Created webhook</b> front-door" in rendered
     assert "https://codex.example/events/wh_123" in rendered
     assert "event-secret" in rendered
     assert "shown once" in rendered
@@ -1089,9 +1151,9 @@ def test_render_current_thread_includes_binding_and_pending_state() -> None:
         )
     )
 
-    assert "Conversation: Thread" in rendered
-    assert "Connection: primary" in rendered
-    assert "Status: running" in rendered
+    assert "<b>Conversation</b> Thread" in rendered
+    assert "<b>Connection</b> primary" in rendered
+    assert "<b>Status</b> running" in rendered
     assert "thread-1" not in rendered
     assert "codex-1" not in rendered
     assert "turn-1" not in rendered
@@ -1133,8 +1195,8 @@ def test_render_history_shows_compact_transcript_labels() -> None:
         )
     )
 
-    assert "User: hello" in rendered
-    assert "Assistant: world" in rendered
+    assert "<b>User</b> hello" in rendered
+    assert "<b>Assistant</b> world" in rendered
 
 
 def test_render_directory_state_shows_numbered_history() -> None:
@@ -1170,8 +1232,8 @@ def test_render_directory_state_shows_numbered_history() -> None:
         )
     )
 
-    assert "* 1. /tmp/current" in rendered
-    assert "- 2. /tmp/previous" in rendered
+    assert "• <b>1.</b> <code>/tmp/current</code> (current)" in rendered
+    assert "• <b>2.</b> <code>/tmp/previous</code>" in rendered
 
 
 def test_render_project_state_shows_active_binding_and_project_config() -> None:
@@ -1223,19 +1285,23 @@ def test_render_project_state_shows_active_binding_and_project_config() -> None:
         )
     )
 
-    assert "Active project: laptop:current -> /tmp/current" in rendered
-    assert "Root: /tmp/current" in rendered
-    assert "Connection: laptop" in rendered
-    assert "Model: gpt-5.4-mini" in rendered
-    assert "Effort: high" in rendered
-    assert "Fast mode: on" in rendered
+    assert (
+        "<b>Active project</b> laptop:current -&gt; <code>/tmp/current</code>"
+        in rendered
+    )
+    assert "<b>Root</b> <code>/tmp/current</code>" in rendered
+    assert "<b>Connection</b> laptop" in rendered
+    assert "• <b>Model</b> <code>gpt-5.4-mini</code>" in rendered
+    assert "• <b>Effort</b> high" in rendered
+    assert "• <b>Fast mode</b> on" in rendered
     assert "Known projects" not in rendered
 
 
 def test_render_help_reuses_published_command_catalog() -> None:
     rendered = render_help()
 
-    assert "/new - Start a new conversation" in rendered
-    assert "/help - Show supported bot commands" in rendered
-    assert "/dir - Show or change the working directory" in rendered
-    assert "/project - Show the active project and config" in rendered
+    assert "• <code>/new</code> - Start a new conversation" in rendered
+    assert "• <code>/help</code> - Show supported bot commands" in rendered
+    assert "• <code>/dir</code> - Show or change the working directory" in rendered
+    assert "• <code>/project</code> - Show the active project and config" in rendered
+    assert "<code>/status</code>" not in rendered
