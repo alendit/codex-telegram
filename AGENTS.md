@@ -91,6 +91,8 @@ Add these answers to the final note, PR description, or equivalent handoff:
 ## Development
 
 - Prefer small, focused changes that preserve the existing layering.
+- After each completed change, verify the focused slice and commit it before
+  starting the next unrelated change.
 - Add abstractions only when they name a real stable contract.
 - Handle expected errors at the layer with useful context; let unexpected errors
   surface clearly.

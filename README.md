@@ -245,6 +245,7 @@ Useful commands:
 ```bash
 uv sync --extra dev
 uv run pytest
+uv run scripts/cut-release.py patch
 ./scripts/build-image.sh
 ./scripts/build-runtime-images.sh
 ```
@@ -252,6 +253,18 @@ uv run pytest
 Core tests cover application policy, Telegram rendering and command behavior,
 SQLite persistence, app-server protocol mapping, webhooks, approvals, profiles,
 and helper entrypoints.
+
+Release cuts accept `major`, `minor`, `patch`, or an explicit semver:
+
+```bash
+uv run scripts/cut-release.py patch
+uv run scripts/cut-release.py minor --push origin
+uv run scripts/cut-release.py 0.2.0
+```
+
+The helper requires a clean worktree, uses `uv version` and `uv lock`, updates
+the public version markers, creates the release commit and annotated `v*` tag,
+and optionally pushes both `HEAD` and the tag to the selected remote.
 
 ## Security Notes
 
