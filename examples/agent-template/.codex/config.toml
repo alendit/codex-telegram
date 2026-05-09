@@ -2,3 +2,11 @@ model_provider = "openai"
 
 [features]
 realtime_conversation = true
+memories = true
+multi_agents_v2 = true
+runtime_metrics = true
+codex_hooks = true
+apply_patch_freeform = true
+default_mode_request_user_input = true
+goals = true
+
