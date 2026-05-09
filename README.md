@@ -223,6 +223,10 @@ such as `/profile`, `/model`, `/effort`, `/summary`, `/verbosity`,
 The `/mcp` and `/skills` commands inspect the focused Codex runtime. `/skill`
 submits a normal Codex turn with a selected skill.
 
+The example runtime includes `ask-user-when-uncertain`, which instructs Codex to
+use the supported choice-based user-input tool when a task is blocked by a
+decision instead of guessing.
+
 ### Webhooks
 
 The optional webhook API lets outside systems trigger a bound conversation by

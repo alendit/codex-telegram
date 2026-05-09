@@ -2670,7 +2670,7 @@ async def test_first_turn_progress_refreshes_status_card_title(tmp_path: Path) -
         chat_key="chat:1",
         codex_backend_id="mac",
         codex_thread_id="codex-a",
-        title="What is the status of HA?",
+        title="What is the service status?",
         alias=None,
         project_id=None,
         latest_bridge_id="bridge-a",
@@ -2700,7 +2700,7 @@ async def test_first_turn_progress_refreshes_status_card_title(tmp_path: Path) -
             logical_thread_id="bridge-a",
             codex_thread_id="codex-a",
             status="running",
-            text="Checking HA.\n",
+            text="Checking service status.\n",
             source="agent",
         ),
     )
@@ -2708,7 +2708,7 @@ async def test_first_turn_progress_refreshes_status_card_title(tmp_path: Path) -
     bot.edit_message_text.assert_awaited_once()
     assert bot.edit_message_text.await_args.kwargs["message_id"] == 77
     assert (
-        "What is the status of HA?" in bot.edit_message_text.await_args.kwargs["text"]
+        "What is the service status?" in bot.edit_message_text.await_args.kwargs["text"]
     )
     bot.send_message.assert_awaited_once()
 

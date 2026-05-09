@@ -295,10 +295,10 @@ async def test_list_skills_uses_effective_thread_cwd_and_filters_search() -> Non
                     enabled=True,
                 ),
                 SkillCapability(
-                    name="example-review-helper",
-                    path="/root/.codex/skills/example-review-helper/SKILL.md",
+                    name="ask-user-when-uncertain",
+                    path="/root/.codex/skills/ask-user-when-uncertain/SKILL.md",
                     scope="user",
-                    description="Review changes before publishing.",
+                    description="Ask the user when blocked.",
                     enabled=True,
                 ),
             ),

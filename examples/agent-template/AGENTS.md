@@ -15,6 +15,8 @@ runtime.
 - Do not print secrets.
 - Prefer small, inspectable operations.
 - Use `request_user_input` when a task is blocked by a user decision.
+- Use the `ask-user-when-uncertain` skill when the next action depends on
+  missing requirements, risky confirmation, or a user preference.
 - Use `codex-telegram-bridge` to inspect or notify the current Telegram bridge.
 - Use `codex-telegram-webhook` to manage durable webhook bindings.
 - Use `codex-telegram-send-attachment` to send files from `/attachments`.

@@ -754,10 +754,10 @@ def test_render_skills_groups_by_scope_and_shows_shortcuts() -> None:
                         enabled=True,
                     ),
                     SkillCapability(
-                        name="example-review-helper",
-                        path="/root/.codex/skills/example-review-helper/SKILL.md",
+                        name="ask-user-when-uncertain",
+                        path="/root/.codex/skills/ask-user-when-uncertain/SKILL.md",
                         scope="user",
-                        description="Review changes before publishing.",
+                        description="Ask the user when blocked.",
                         enabled=True,
                     ),
                 ),
@@ -770,7 +770,7 @@ def test_render_skills_groups_by_scope_and_shows_shortcuts() -> None:
     assert "/skill_codex_telegram_webhooks" in rendered
     assert "Manage Telegram webhooks." in rendered
     assert "<b>user</b>" in rendered
-    assert "/skill_example_review_helper" in rendered
+    assert "/skill_ask_user_when_uncertain" in rendered
 
 
 def test_render_mcp_servers_shows_summary_tools_and_resources() -> None:
