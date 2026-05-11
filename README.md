@@ -6,6 +6,8 @@
 
 Direct Telegram bot for Codex backed by `codex app-server`.
 
+![Codex Telegram Home Assistant demo](docs/media/codex-telegram-hass-demo.gif)
+
 `codex-telegram` is an async Python application with a narrow architecture:
 Telegram adapter -> application core -> Codex app-server adapter. Telegram owns
 chat UX, the core owns conversation policy, and `codex app-server` owns Codex
