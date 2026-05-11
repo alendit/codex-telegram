@@ -79,7 +79,7 @@ def test_is_dirty_worktree_treats_any_porcelain_output_as_dirty() -> None:
     assert cut_release.is_dirty_worktree("?? scripts/cut-release.py\n") is True
 
 
-def test_rewrite_version_files_updates_duplicate_public_version_markers(
+def test_rewrite_version_files_updates_public_package_and_docker_markers(
     tmp_path: Path,
 ) -> None:
     cut_release = _load_cut_release_module()
@@ -91,13 +91,27 @@ def test_rewrite_version_files_updates_duplicate_public_version_markers(
     )
     (project_root / "README.md").write_text(
         "[![Version](https://img.shields.io/badge/version-0.1.0-blue)]"
-        "(https://github.com/alendit/codex-telegram/releases/tag/v0.1.0)\n",
+        "(https://github.com/alendit/codex-telegram/releases/tag/v0.1.0)\n"
+        "[![Docker image](https://img.shields.io/badge/image-"
+        "ghcr.io%2Falendit%2Fcodex--telegram%3A0.1.0-blue?logo=github)]"
+        "(https://github.com/alendit/codex-telegram/pkgs/container/"
+        "codex-telegram)\n"
+        "docker pull ghcr.io/alendit/codex-telegram:0.1.0\n",
+        encoding="utf-8",
+    )
+    (project_root / "Dockerfile").write_text("ARG VERSION=0.1.0\n", encoding="utf-8")
+    scripts_root = project_root / "scripts"
+    scripts_root.mkdir()
+    (scripts_root / "build-image.sh").write_text(
+        ': "${CODEX_TELEGRAM_VERSION:=0.1.0}"\n',
         encoding="utf-8",
     )
 
     changed = cut_release.rewrite_version_files(project_root, "0.2.0")
 
     assert changed == [
+        Path("Dockerfile"),
+        Path("scripts/build-image.sh"),
         Path("src/codex_telegram/__init__.py"),
         Path("README.md"),
     ]
@@ -109,6 +123,18 @@ def test_rewrite_version_files_updates_duplicate_public_version_markers(
     )
     assert "releases/tag/v0.2.0" in (project_root / "README.md").read_text(
         encoding="utf-8"
+    )
+    assert "codex--telegram%3A0.2.0-blue" in (project_root / "README.md").read_text(
+        encoding="utf-8"
+    )
+    assert "docker pull ghcr.io/alendit/codex-telegram:0.2.0" in (
+        project_root / "README.md"
+    ).read_text(encoding="utf-8")
+    assert (project_root / "Dockerfile").read_text(encoding="utf-8") == (
+        "ARG VERSION=0.2.0\n"
+    )
+    assert (scripts_root / "build-image.sh").read_text(encoding="utf-8") == (
+        ': "${CODEX_TELEGRAM_VERSION:=0.2.0}"\n'
     )
 
 

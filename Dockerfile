@@ -1,6 +1,6 @@
 FROM python:3.13-bookworm
 
-ARG VERSION=0.1.0
+ARG VERSION=0.3.0
 ARG VCS_REF=""
 
 LABEL org.opencontainers.image.title="codex-telegram" \

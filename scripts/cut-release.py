@@ -17,7 +17,9 @@ SEMVER_CORE_PATTERN = re.compile(
 )
 RELEASE_TYPES = {"major", "minor", "patch"}
 VERSION_FILES = [
+    Path("Dockerfile"),
     Path("pyproject.toml"),
+    Path("scripts/build-image.sh"),
     Path("uv.lock"),
     Path("src/codex_telegram/__init__.py"),
     Path("README.md"),
@@ -146,6 +148,28 @@ def _replace_once(text: str, pattern: re.Pattern[str], replacement: str) -> str:
 def rewrite_version_files(project_root: Path, version: str) -> list[Path]:
     changed: list[Path] = []
 
+    dockerfile_path = project_root / "Dockerfile"
+    dockerfile_text = dockerfile_path.read_text(encoding="utf-8")
+    next_dockerfile_text = _replace_once(
+        dockerfile_text,
+        re.compile(r"ARG VERSION=[0-9A-Za-z.+-]+"),
+        f"ARG VERSION={version}",
+    )
+    if next_dockerfile_text != dockerfile_text:
+        dockerfile_path.write_text(next_dockerfile_text, encoding="utf-8")
+        changed.append(Path("Dockerfile"))
+
+    build_image_path = project_root / "scripts" / "build-image.sh"
+    build_image_text = build_image_path.read_text(encoding="utf-8")
+    next_build_image_text = _replace_once(
+        build_image_text,
+        re.compile(r'CODEX_TELEGRAM_VERSION:=[0-9A-Za-z.+-]+'),
+        f"CODEX_TELEGRAM_VERSION:={version}",
+    )
+    if next_build_image_text != build_image_text:
+        build_image_path.write_text(next_build_image_text, encoding="utf-8")
+        changed.append(Path("scripts/build-image.sh"))
+
     init_path = project_root / "src" / "codex_telegram" / "__init__.py"
     init_text = init_path.read_text(encoding="utf-8")
     next_init_text = _replace_once(
@@ -168,6 +192,16 @@ def rewrite_version_files(project_root: Path, version: str) -> list[Path]:
         next_readme_text,
         re.compile(r"releases/tag/v[0-9A-Za-z.+-]+"),
         f"releases/tag/v{version}",
+    )
+    next_readme_text = _replace_once(
+        next_readme_text,
+        re.compile(r"codex--telegram%3A[0-9A-Za-z.+-]+-blue"),
+        f"codex--telegram%3A{version}-blue",
+    )
+    next_readme_text = _replace_once(
+        next_readme_text,
+        re.compile(r"docker pull ghcr\.io/alendit/codex-telegram:[0-9A-Za-z.+-]+"),
+        f"docker pull ghcr.io/alendit/codex-telegram:{version}",
     )
     if next_readme_text != readme_text:
         readme_path.write_text(next_readme_text, encoding="utf-8")
