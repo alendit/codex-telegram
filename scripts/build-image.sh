@@ -10,7 +10,7 @@ docker_build() {
   docker build "$@"
 }
 
-: "${CODEX_TELEGRAM_VERSION:=0.3.0}"
+: "${CODEX_TELEGRAM_VERSION:=0.4.0}"
 : "${CODEX_TELEGRAM_IMAGE:=codex-telegram:git}"
 : "${CODEX_TELEGRAM_EXTRA_TAGS:=}"
 : "${CODEX_TELEGRAM_PUSH:=0}"

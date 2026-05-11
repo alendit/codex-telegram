@@ -1,7 +1,7 @@
 # codex-telegram
 
-[![Version](https://img.shields.io/badge/version-0.3.0-blue)](https://github.com/alendit/codex-telegram/releases/tag/v0.3.0)
-[![Docker image](https://img.shields.io/badge/image-ghcr.io%2Falendit%2Fcodex--telegram%3A0.3.0-blue?logo=github)](https://github.com/alendit/codex-telegram/pkgs/container/codex-telegram)
+[![Version](https://img.shields.io/badge/version-0.4.0-blue)](https://github.com/alendit/codex-telegram/releases/tag/v0.4.0)
+[![Docker image](https://img.shields.io/badge/image-ghcr.io%2Falendit%2Fcodex--telegram%3A0.4.0-blue?logo=github)](https://github.com/alendit/codex-telegram/pkgs/container/codex-telegram)
 [![CI](https://github.com/alendit/codex-telegram/actions/workflows/ci.yml/badge.svg)](https://github.com/alendit/codex-telegram/actions/workflows/ci.yml)
 
 Direct Telegram bot for Codex backed by `codex app-server`.
@@ -107,7 +107,7 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.example.yaml up -
 The bridge image is published as:
 
 ```bash
-docker pull ghcr.io/alendit/codex-telegram:0.3.0
+docker pull ghcr.io/alendit/codex-telegram:0.4.0
 ```
 
 The example uses named volumes for `/agent`, `/root/.codex`, SQLite state, and
