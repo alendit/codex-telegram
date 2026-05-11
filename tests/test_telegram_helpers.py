@@ -861,6 +861,7 @@ def test_render_goal_status_includes_budget_usage_and_timestamps() -> None:
             token_budget=1000,
             tokens_used=250,
             elapsed_seconds=12.5,
+            created_at="1778489333",
             updated_at="2026-05-06T00:01:00Z",
         )
     )
@@ -869,7 +870,8 @@ def test_render_goal_status_includes_budget_usage_and_timestamps() -> None:
     assert "<b>Status</b> paused" in rendered
     assert "<b>Tokens</b> 250 / 1000" in rendered
     assert "<b>Elapsed</b> 12.5s" in rendered
-    assert "<b>Updated</b> <code>2026-05-06T00:01:00Z</code>" in rendered
+    assert "<b>Created</b> 2026-05-11 08:48:53 UTC" in rendered
+    assert "<b>Updated</b> 2026-05-06 00:01:00 UTC" in rendered
 
 
 def test_render_goal_status_handles_empty_goal() -> None:
@@ -1006,7 +1008,7 @@ def test_render_usage_shows_account_rate_limits_and_runtime_metrics() -> None:
 
     assert "<b>Account limits</b>" in rendered
     assert "<b>5h limit</b> 22.5% used" in rendered
-    assert "<b>Resets</b> <code>2026-05-07T16:31:48Z</code>" in rendered
+    assert "<b>Resets</b> 2026-05-07 16:31:48 UTC" in rendered
     assert "<b>Weekly limit</b> 53% used" in rendered
     assert "<b>Runtime totals</b>" in rendered
     assert "<b>Total</b> 160" in rendered

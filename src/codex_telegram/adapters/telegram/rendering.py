@@ -47,6 +47,7 @@ CODEX_THREADS_DEFAULT_LIMIT = 3
 STATUS_CARD_ROTATION_SECONDS = 3600.0
 SENTENCE_BOUNDARY_RE = re.compile(r"[.!?](?=(?:\s|$))")
 HTML_TAG_RE = re.compile(r"<[^>]+>")
+UTC_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S UTC"
 WRAPPED_CONVERSATION_NOTICE = (
     "This conversations is wrapped up due to inactivity. "
     "Reply to this message to resume the conversation."
@@ -365,10 +366,41 @@ def render_goal_status(goal: CodexGoal | None) -> str:
     if goal.elapsed_seconds is not None:
         lines.append(f"<b>Elapsed</b> {goal.elapsed_seconds:g}s")
     if goal.created_at:
-        lines.append(f"<b>Created</b> <code>{escape(goal.created_at)}</code>")
+        lines.append(f"<b>Created</b> {_format_timestamp_for_display(goal.created_at)}")
     if goal.updated_at:
-        lines.append(f"<b>Updated</b> <code>{escape(goal.updated_at)}</code>")
+        lines.append(f"<b>Updated</b> {_format_timestamp_for_display(goal.updated_at)}")
     return "\n".join(lines)
+
+
+def _format_timestamp_for_display(value: str) -> str:
+    parsed = _parse_timestamp(value)
+    if parsed is None:
+        return f"<code>{escape(value)}</code>"
+    return escape(parsed.astimezone(UTC).strftime(UTC_TIMESTAMP_FORMAT))
+
+
+def _parse_timestamp(value: str) -> datetime | None:
+    stripped = value.strip()
+    if not stripped:
+        return None
+    try:
+        timestamp = float(stripped)
+    except ValueError:
+        timestamp = None
+    if timestamp is not None:
+        if abs(timestamp) > 10_000_000_000:
+            timestamp = timestamp / 1000
+        try:
+            return datetime.fromtimestamp(timestamp, tz=UTC)
+        except (OSError, OverflowError, ValueError):
+            return None
+    try:
+        parsed = datetime.fromisoformat(stripped.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed
 
 
 def render_usage(state: UsageState) -> str:
@@ -428,7 +460,7 @@ def _render_account_usage_limit_lines(limit: AccountUsageLimit) -> list[str]:
     else:
         lines = [f"<b>{escape(limit.label)}</b> " + ", ".join(parts)]
     if limit.resets_at:
-        lines.append(f"<b>Resets</b> <code>{escape(limit.resets_at)}</code>")
+        lines.append(f"<b>Resets</b> {_format_timestamp_for_display(limit.resets_at)}")
     return lines
 
 
