@@ -323,6 +323,12 @@ class StateRepository(Protocol):
         *,
         limit: int = 10,
     ) -> list[ThreadMessage]: ...
+    async def list_final_thread_messages(
+        self,
+        thread_id: str,
+        *,
+        limit: int = 10,
+    ) -> list[ThreadMessage]: ...
     async def list_undelivered_final_thread_messages(
         self,
         *,

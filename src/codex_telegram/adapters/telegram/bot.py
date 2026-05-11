@@ -1476,6 +1476,28 @@ class TelegramBotRunner:
             thread_id,
         )
 
+    async def _send_history_final_messages(
+        self,
+        context: ChatContext,
+        limit: int,
+    ) -> None:
+        history = await self._service.thread_final_history(context.chat_key, limit)
+        if not history.entries:
+            title = _logical_thread_name(history.thread)
+            await self._send_text(
+                context,
+                f"<b>History</b>\nNo saved final messages for {escape(title)} yet.",
+                parse_mode="HTML",
+            )
+            return
+        for message in history.entries:
+            if message.kind == "final_image":
+                image = _thread_message_image(message)
+                if image is not None:
+                    await self._send_result_images(context, (image,))
+                continue
+            await self._send_focus_repeat_final(context, message)
+
     async def _send_text(
         self,
         context: ChatContext,

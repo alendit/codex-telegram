@@ -851,6 +851,19 @@ class BotService:
         )
         return ThreadHistory(thread=thread, entries=entries)
 
+    async def thread_final_history(
+        self,
+        chat_key: str,
+        limit: int = 10,
+    ) -> ThreadHistory:
+        """Return recent assistant finals for the active thread."""
+        thread = await self.ensure_active_thread(chat_key)
+        entries = await self._repository.list_final_thread_messages(
+            thread.thread_id,
+            limit=max(1, min(limit, 50)),
+        )
+        return ThreadHistory(thread=thread, entries=entries)
+
     async def focus_final_messages(
         self,
         chat_key: str,

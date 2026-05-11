@@ -20,7 +20,6 @@ from codex_telegram.adapters.telegram.rendering import (
     render_directory_state,
     render_goal_status,
     render_help,
-    render_history,
     render_mcp_servers,
     render_project_state,
     render_settings,
@@ -146,6 +145,12 @@ class CommandHost(Protocol):
         self,
         context: ChatContext,
         thread_id: str,
+    ) -> None: ...
+
+    async def _send_history_final_messages(
+        self,
+        context: ChatContext,
+        limit: int,
     ) -> None: ...
 
     def _consume_realtime_events(
@@ -326,8 +331,7 @@ class TelegramCommandExecutor:
                         COMMAND_FAILURE_PREFIX + "Usage: /history [count]",
                     )
                     return True
-            history = await host._service.thread_history(context.chat_key, limit)
-            await host._send_text(context, render_history(history), parse_mode="HTML")
+            await host._send_history_final_messages(context, limit)
             return True
         if name == "help":
             await host._send_text(context, render_help(), parse_mode="HTML")

@@ -3780,6 +3780,78 @@ async def test_focus_command_replays_latest_anchor_bridge_messages_with_real_ser
 
 
 @pytest.mark.asyncio
+async def test_history_command_replays_recent_final_messages_without_truncation(
+    tmp_path: Path,
+) -> None:
+    repository = SQLiteStateRepository(tmp_path / "state.db")
+    progress_store = SQLiteTelegramProgressStore(tmp_path / "state.db")
+    await repository.initialize()
+    await progress_store.initialize()
+    client = AsyncMock()
+    client.get_runtime_state = Mock(return_value=CodexRuntimeState())
+    service = BotService(
+        BotServiceConfig(
+            default_profile="operator",
+            client_default_profiles={},
+            profiles={},
+            turn_poll_seconds=0.01,
+            wait_notice_seconds=180.0,
+            bridge_window_ttl_seconds=900.0,
+        ),
+        repository,
+        client,
+    )
+    bridge = await service.new_thread("chat:1")
+    long_final = "long final " + ("without truncation " * 40).strip()
+    await repository.add_thread_message(
+        bridge.thread_id,
+        role="user",
+        kind="prompt",
+        text="do not replay me",
+    )
+    await repository.add_thread_message(
+        bridge.thread_id,
+        role="assistant",
+        kind="final",
+        text="older final",
+    )
+    await repository.add_thread_message(
+        bridge.thread_id,
+        role="assistant",
+        kind="final",
+        text=long_final,
+    )
+    bot = AsyncMock()
+    bot.send_message.return_value.message_id = 88
+    runner = TelegramBotRunner(
+        bot,
+        Dispatcher(),
+        service,
+        repository,
+        progress_store,
+        None,
+        False,
+    )
+
+    handled = await runner._handle_command(
+        ChatContext(chat_key="chat:1", chat_id=1, topic_id=None),
+        bridge.thread_id,
+        ("history", "2"),
+        "/history 2",
+    )
+
+    assert handled is True
+    sent_texts = [call.kwargs["text"] for call in bot.send_message.await_args_list]
+    assert sent_texts == [
+        "<b>🔁 From: New conversation</b>\n\nolder final",
+        f"<b>🔁 From: New conversation</b>\n\n{long_final}",
+    ]
+    assert bot.send_message.await_args_list[-1].kwargs["parse_mode"] == "HTML"
+    assert "do not replay me" not in "\n".join(sent_texts)
+    assert "..." not in sent_texts[-1]
+
+
+@pytest.mark.asyncio
 async def test_status_card_threads_shortcut_sends_connection_picker_at_bottom(
     tmp_path: Path,
 ) -> None:

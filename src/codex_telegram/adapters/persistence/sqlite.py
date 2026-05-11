@@ -1131,6 +1131,31 @@ class SQLiteStateRepository:
             ).fetchall()
         return [_thread_message_from_row(row) for row in reversed(list(rows))]
 
+    async def list_final_thread_messages(
+        self,
+        thread_id: str,
+        *,
+        limit: int = 10,
+    ) -> list[ThreadMessage]:
+        """Return recent assistant final entries ordered oldest to newest."""
+        async with aiosqlite.connect(self._path) as db:
+            db.row_factory = aiosqlite.Row
+            rows = await (
+                await db.execute(
+                    """
+                    SELECT id, thread_id, role, kind, text, created_at, turn_id
+                      FROM thread_messages
+                     WHERE thread_id = ?
+                       AND role = 'assistant'
+                       AND kind IN ('final', 'final_image')
+                     ORDER BY id DESC
+                     LIMIT ?
+                    """,
+                    (thread_id, max(limit, 1)),
+                )
+            ).fetchall()
+        return [_thread_message_from_row(row) for row in reversed(list(rows))]
+
     async def list_undelivered_final_thread_messages(
         self,
         *,
@@ -1182,7 +1207,7 @@ class SQLiteStateRepository:
                       FROM thread_messages
                      WHERE thread_id = ?
                        AND role = 'assistant'
-                       AND kind = 'final'
+                       AND kind IN ('final', 'final_image')
                      ORDER BY id DESC
                      LIMIT 1
                     """,
