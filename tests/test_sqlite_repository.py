@@ -775,3 +775,33 @@ async def test_repository_round_trips_codex_backend_id(tmp_path: Path) -> None:
     assert thread is not None
     assert thread.codex_thread_id == "codex-1"
     assert thread.codex_backend_id == "laptop"
+
+
+@pytest.mark.asyncio
+async def test_rebinding_thread_clears_previous_anchor_latest_bridge(
+    tmp_path: Path,
+) -> None:
+    repo = SQLiteStateRepository(tmp_path / "state.db")
+    await repo.initialize()
+
+    await repo.create_thread("chat:1", "thread-1", "Thread")
+    await repo.update_codex_thread_binding(
+        "thread-1",
+        "codex-1",
+        codex_backend_id="primary",
+    )
+    await repo.update_codex_thread_binding(
+        "thread-1",
+        "codex-2",
+        codex_backend_id="primary",
+    )
+
+    anchors = await repo.list_conversation_anchors("chat:1")
+    latest_by_codex_thread = {
+        anchor.codex_thread_id: anchor.latest_bridge_id for anchor in anchors
+    }
+
+    assert latest_by_codex_thread == {
+        "codex-1": None,
+        "codex-2": "thread-1",
+    }

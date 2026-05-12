@@ -863,20 +863,21 @@ class TelegramBotRunner:
         focused = await self._service.ensure_focused_bridge(context.chat_key)
         if not isinstance(conversations, list):
             return "Codex is still working. Running conversations: unknown."
-        focused_running = 0
-        background_running = 0
+        focused_running: set[str] = set()
+        background_running: set[str] = set()
         for anchor in conversations:
-            if not _anchor_is_running(anchor):
+            bridge_id = anchor.latest_bridge_id
+            if bridge_id is None or not _anchor_is_running(anchor):
                 continue
-            if anchor.latest_bridge_id == focused.bridge_id:
-                focused_running += 1
+            if bridge_id == focused.bridge_id:
+                focused_running.add(bridge_id)
             else:
-                background_running += 1
+                background_running.add(bridge_id)
         parts: list[str] = []
         if focused_running:
-            parts.append(_count_phrase(focused_running, "focused"))
+            parts.append(_count_phrase(len(focused_running), "focused"))
         if background_running:
-            parts.append(_count_phrase(background_running, "background"))
+            parts.append(_count_phrase(len(background_running), "background"))
         if not parts:
             parts.append("none visible")
         return f"Codex is still working. Running conversations: {', '.join(parts)}."

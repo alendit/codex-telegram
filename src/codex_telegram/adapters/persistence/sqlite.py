@@ -555,6 +555,17 @@ class SQLiteStateRepository:
                     (chat_key, codex_backend_id, codex_thread_id),
                 )
             ).fetchone()
+            if latest_bridge_id is not None and row is not None:
+                await db.execute(
+                    """
+                    UPDATE conversation_anchors
+                       SET latest_bridge_id = NULL
+                     WHERE chat_key = ?
+                       AND latest_bridge_id = ?
+                       AND anchor_id != ?
+                    """,
+                    (chat_key, latest_bridge_id, row["anchor_id"]),
+                )
             await db.commit()
         assert row is not None
         return _anchor_from_row(row)

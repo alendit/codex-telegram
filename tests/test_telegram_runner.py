@@ -1377,6 +1377,70 @@ async def test_wait_notice_summarizes_active_conversations_and_refreshes_status_
 
 
 @pytest.mark.asyncio
+async def test_wait_notice_deduplicates_duplicate_focused_anchor_projection(
+    tmp_path: Path,
+) -> None:
+    repository = SQLiteStateRepository(tmp_path / "state.db")
+    progress_store = SQLiteTelegramProgressStore(tmp_path / "state.db")
+    await repository.initialize()
+    await progress_store.initialize()
+
+    stale = ConversationAnchor(
+        anchor_id="anchor-stale",
+        chat_key="chat:1",
+        codex_backend_id="primary",
+        codex_thread_id="codex-stale",
+        title="Stale",
+        alias=None,
+        project_id=None,
+        latest_bridge_id="bridge-focused",
+        created_at="now",
+        updated_at="now",
+        latest_bridge_pending_turn_id="turn-focused",
+        latest_bridge_awaiting_reply=True,
+    )
+    current = ConversationAnchor(
+        anchor_id="anchor-current",
+        chat_key="chat:1",
+        codex_backend_id="primary",
+        codex_thread_id="codex-current",
+        title="Focused",
+        alias=None,
+        project_id=None,
+        latest_bridge_id="bridge-focused",
+        created_at="now",
+        updated_at="now",
+        latest_bridge_pending_turn_id="turn-focused",
+        latest_bridge_awaiting_reply=True,
+    )
+    service = AsyncMock()
+    service.list_conversations.return_value = [stale, current]
+    service.ensure_focused_bridge.return_value = SimpleNamespace(
+        bridge_id="bridge-focused",
+        title="Focused",
+        codex_backend_id="primary",
+        codex_thread_id="codex-current",
+    )
+    service.runtime_state_for_thread.return_value = CodexRuntimeState()
+    bot = AsyncMock()
+    runner = TelegramBotRunner(
+        bot,
+        Dispatcher(),
+        service,
+        repository,
+        progress_store,
+        None,
+        False,
+    )
+
+    text = await runner._wait_notice_text(
+        ChatContext(chat_key="chat:1", chat_id=1, topic_id=None)
+    )
+
+    assert text == "Codex is still working. Running conversations: 1 focused."
+
+
+@pytest.mark.asyncio
 async def test_background_status_card_shortcut_stays_stable_between_refreshes(
     tmp_path: Path,
 ) -> None:
