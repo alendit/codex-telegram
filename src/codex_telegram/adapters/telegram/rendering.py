@@ -22,7 +22,6 @@ from codex_telegram.application.models import (
     ProjectState,
     StatusCardState,
     SkillCatalog,
-    ThreadHistory,
     UsageState,
 )
 from codex_telegram.domain import (
@@ -1064,20 +1063,6 @@ def _user_input_complete(pending: PendingUserInput) -> bool:
     )
 
 
-def render_history(history: ThreadHistory) -> str:
-    """Render recent compact thread history."""
-    title = _logical_thread_name(history.thread)
-    if not history.entries:
-        return f"<b>History</b>\nNo saved history for conversation {escape(title)} yet."
-    lines = [f"<b>Recent history</b> {escape(title)}"]
-    for entry in history.entries:
-        lines.append(
-            f"<b>{escape(_thread_message_label(entry, assistant_label='Assistant'))}</b> "
-            f"{escape(_short_line(entry.text))}"
-        )
-    return "\n".join(lines)
-
-
 def _thread_message_label(entry: ThreadMessage, *, assistant_label: str) -> str:
     return {
         ("user", "prompt"): "User",
@@ -1087,27 +1072,57 @@ def _thread_message_label(entry: ThreadMessage, *, assistant_label: str) -> str:
     }.get((entry.role, entry.kind), f"{entry.role}/{entry.kind}")
 
 
-def render_skills(catalogs: list[SkillCatalog]) -> str:
+def render_skills(
+    catalogs: list[SkillCatalog],
+    *,
+    text_limit: int = TELEGRAM_MESSAGE_TEXT_LIMIT,
+) -> str:
     """Render available Codex skills."""
     skills = [skill for catalog in catalogs for skill in catalog.skills]
     if not skills:
         return "<b>Skills</b>\nNo skills found for the current conversation."
     lines = ["<b>Skills</b>"]
+    enabled_skills = [skill for skill in skills if skill.enabled]
+    total_enabled = len(enabled_skills)
+    shown = 0
+    omitted_added = False
     for scope in ("repo", "user", "system", "admin"):
-        scoped = [skill for skill in skills if skill.scope == scope and skill.enabled]
+        scoped = [skill for skill in enabled_skills if skill.scope == scope]
         if not scoped:
             continue
-        lines.append("")
-        lines.append(f"<b>{escape(scope)}</b>")
+        header = ["", f"<b>{escape(scope)}</b>"]
+        header_added = False
         for skill in sorted(scoped, key=lambda item: item.name.casefold()):
             shortcut = f"/skill_{_skill_slug(skill.name)}"
             description = skill.short_description or skill.description
             suffix = f" - {escape(_short_line(description, 90))}" if description else ""
-            lines.append(f"{escape(shortcut)} {escape(skill.name)}{suffix}")
+            entry = f"{escape(shortcut)} {escape(skill.name)}{suffix}"
+            prefix = [] if header_added else header
+            remaining_after_skill = total_enabled - shown - 1
+            candidate = lines + prefix + [entry]
+            if remaining_after_skill:
+                candidate.append(_skill_omission_line(remaining_after_skill))
+            if len("\n".join(candidate)) > text_limit:
+                _append_limited_line(
+                    lines,
+                    _skill_omission_line(total_enabled - shown),
+                    text_limit=text_limit,
+                )
+                omitted_added = True
+                break
+            lines.extend(prefix)
+            header_added = True
+            lines.append(entry)
+            shown += 1
+        if omitted_added:
+            break
     disabled = [skill for skill in skills if not skill.enabled]
-    if disabled:
-        lines.append("")
-        lines.append(f"Disabled: {_count_phrase(len(disabled), 'skill')}")
+    if disabled and not omitted_added:
+        _append_limited_line(
+            lines,
+            f"Disabled: {_count_phrase(len(disabled), 'skill')}",
+            text_limit=text_limit,
+        )
     return "\n".join(lines)
 
 
@@ -1168,16 +1183,46 @@ def render_mcp_servers(
                 break
         return "\n".join(lines)
     if view == "resources":
+        total_resources = sum(
+            len(server.resources) + len(server.resource_templates)
+            for server in selected
+        )
+        shown_resources = 0
+        omitted_added = False
         for server in selected:
-            lines.append("")
-            lines.append(f"<b>{escape(server.name)}</b> resources")
+            header = ["", f"<b>{escape(server.name)}</b> resources"]
             if not server.resources and not server.resource_templates:
-                lines.append("No resources.")
+                candidate = lines + header + ["No resources."]
+                if len("\n".join(candidate)) <= text_limit:
+                    lines = candidate
                 continue
-            for resource in server.resources:
-                lines.append(f"{escape(resource.name)} - {escape(resource.uri)}")
-            for resource in server.resource_templates:
-                lines.append(f"{escape(resource.name)} - {escape(resource.uri)}")
+            header_added = False
+            resources = [*server.resources, *server.resource_templates]
+            for resource in resources:
+                entry = f"{escape(resource.name)} - {escape(resource.uri)}"
+                prefix = [] if header_added else header
+                remaining_after_resource = total_resources - shown_resources - 1
+                candidate = lines + prefix + [entry]
+                if remaining_after_resource:
+                    candidate.append(
+                        _mcp_omission_line(remaining_after_resource, "resource")
+                    )
+                if len("\n".join(candidate)) > text_limit:
+                    _append_limited_line(
+                        lines,
+                        _mcp_omission_line(
+                            total_resources - shown_resources, "resource"
+                        ),
+                        text_limit=text_limit,
+                    )
+                    omitted_added = True
+                    break
+                lines.extend(prefix)
+                header_added = True
+                lines.append(entry)
+                shown_resources += 1
+            if omitted_added:
+                break
         return "\n".join(lines)
     for server in selected:
         lines.append(
@@ -1222,6 +1267,11 @@ def _plain_capability_line(text: str, limit: int = 120) -> str:
 def _mcp_omission_line(omitted: int, unit: str) -> str:
     suffix = "" if omitted == 1 else "s"
     return f"... {omitted} more {unit}{suffix} not shown."
+
+
+def _skill_omission_line(omitted: int) -> str:
+    suffix = "" if omitted == 1 else "s"
+    return f"... {omitted} more skill{suffix} not shown."
 
 
 def _append_limited_line(

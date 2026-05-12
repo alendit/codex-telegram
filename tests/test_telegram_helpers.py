@@ -7,7 +7,6 @@ from codex_telegram.adapters.telegram.bot import (
     render_directory_state,
     render_goal_status,
     render_help,
-    render_history,
     render_mcp_servers,
     render_overview,
     render_conversations,
@@ -33,7 +32,6 @@ from codex_telegram.application.models import (
     CurrentThreadState,
     DirectoryState,
     EffectiveSettings,
-    ThreadHistory,
     ProjectState,
     RuntimeUsageMetrics,
     McpResourceCapability,
@@ -52,7 +50,6 @@ from codex_telegram.domain import (
     PendingApproval,
     PendingUserInput,
     SessionOverrides,
-    ThreadMessage,
     UserInputOption,
     UserInputQuestion,
     WebhookSubscription,
@@ -773,6 +770,30 @@ def test_render_skills_groups_by_scope_and_shows_shortcuts() -> None:
     assert "/skill_ask_user_when_uncertain" in rendered
 
 
+def test_render_skills_shows_omission_when_text_limit_is_reached() -> None:
+    rendered = render_skills(
+        [
+            SkillCatalog(
+                cwd="/agent/app",
+                skills=tuple(
+                    SkillCapability(
+                        name=f"skill-{index:03d}",
+                        path=f"/root/.codex/skills/skill-{index:03d}/SKILL.md",
+                        scope="repo",
+                        description=" ".join(["Detailed skill description"] * 8),
+                        enabled=True,
+                    )
+                    for index in range(60)
+                ),
+            )
+        ],
+        text_limit=420,
+    )
+
+    assert len(rendered) <= 420
+    assert "more skills not shown" in rendered
+
+
 def test_render_mcp_servers_shows_summary_tools_and_resources() -> None:
     servers = [
         McpServerCapability(
@@ -851,6 +872,38 @@ def test_render_mcp_servers_tools_view_stays_under_telegram_text_limit() -> None
 
     assert len(rendered) <= TELEGRAM_MESSAGE_TEXT_LIMIT
     assert "more tools not shown" in rendered
+
+
+def test_render_mcp_servers_resources_view_stays_under_telegram_text_limit() -> None:
+    servers = [
+        McpServerCapability(
+            name="large",
+            auth_status="unsupported",
+            resources=tuple(
+                McpResourceCapability(
+                    name=f"resource_{index:03d}",
+                    uri="file:///agent/" + "/".join(["deep-resource-path"] * 8),
+                    title=None,
+                    description=None,
+                )
+                for index in range(80)
+            ),
+            resource_templates=tuple(
+                McpResourceCapability(
+                    name=f"template_{index:03d}",
+                    uri="browser://tabs/{id}/" + "/".join(["deep-template-path"] * 8),
+                    title=None,
+                    description=None,
+                )
+                for index in range(80)
+            ),
+        )
+    ]
+
+    rendered = render_mcp_servers(servers, view="resources", text_limit=420)
+
+    assert len(rendered) <= 420
+    assert "more resources not shown" in rendered
 
 
 def test_render_goal_status_includes_budget_usage_and_timestamps() -> None:
@@ -1181,46 +1234,6 @@ def test_render_current_thread_includes_binding_and_pending_state() -> None:
     assert "thread-1" not in rendered
     assert "codex-1" not in rendered
     assert "turn-1" not in rendered
-
-
-def test_render_history_shows_compact_transcript_labels() -> None:
-    rendered = render_history(
-        ThreadHistory(
-            thread=LogicalThread(
-                thread_id="thread-1",
-                chat_key="chat:1",
-                title="Thread",
-                codex_thread_id=None,
-                created_at="now",
-                updated_at="now",
-                turn_count=2,
-                awaiting_reply=False,
-                interrupted_notice=False,
-                pending_turn_id=None,
-            ),
-            entries=[
-                ThreadMessage(
-                    message_id=1,
-                    thread_id="thread-1",
-                    role="user",
-                    kind="prompt",
-                    text="hello",
-                    created_at="now",
-                ),
-                ThreadMessage(
-                    message_id=2,
-                    thread_id="thread-1",
-                    role="assistant",
-                    kind="final",
-                    text="world",
-                    created_at="now",
-                ),
-            ],
-        )
-    )
-
-    assert "<b>User</b> hello" in rendered
-    assert "<b>Assistant</b> world" in rendered
 
 
 def test_render_directory_state_shows_numbered_history() -> None:

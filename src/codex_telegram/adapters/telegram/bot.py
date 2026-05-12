@@ -83,7 +83,6 @@ from codex_telegram.adapters.telegram.rendering import (
     render_directory_state,
     render_goal_status,
     render_help,
-    render_history,
     render_mcp_servers,
     render_overview,
     render_project_state,
@@ -114,7 +113,6 @@ from codex_telegram.application.models import (
     DirectoryState,
     EffectiveSettings,
     ProjectState,
-    ThreadHistory,
 )
 from codex_telegram.application.ports import ProgressMessageStore, StateRepository
 from codex_telegram.application.service import (
