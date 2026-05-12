@@ -501,7 +501,7 @@ def _render_runtime_metrics_lines(state: UsageState) -> list[str]:
         lines.extend(
             _render_token_usage_section("Runtime totals", metrics.total_token_usage)
         )
-    if metrics.last_token_usage:
+    if metrics.last_token_usage and metrics.last_token_usage != state.token_usage:
         if lines:
             lines.append("")
         lines.extend(
@@ -513,14 +513,39 @@ def _render_runtime_metrics_lines(state: UsageState) -> list[str]:
     if metrics.model_context_window is not None:
         if not lines:
             lines.append("<b>Runtime metrics</b>")
-        lines.append(
-            f"<b>Context window</b> {_format_usage_number(metrics.model_context_window)}"
-        )
+        lines.append(_render_context_window_line(state, metrics.model_context_window))
     return lines
+
+
+def _render_context_window_line(state: UsageState, context_window: int) -> str:
+    usage = state.token_usage
+    if usage is None and state.runtime_metrics is not None:
+        usage = state.runtime_metrics.last_token_usage
+    used = usage.get("total_tokens") if usage else None
+    if used is None or context_window <= 0:
+        return f"<b>Context window</b> {_format_compact_token_count(context_window)}"
+    percent_used = used / context_window * 100
+    return (
+        f"<b>Context window</b> {_format_usage_percent(percent_used)}% used "
+        f"({_format_compact_token_count(used)}/{_format_compact_token_count(context_window)})"
+    )
 
 
 def _format_usage_number(value: int) -> str:
     return f"{value:,}"
+
+
+def _format_compact_token_count(value: int) -> str:
+    if abs(value) < 1000:
+        return str(value)
+    return f"{round(value / 1000):,}k"
+
+
+def _format_usage_percent(value: float) -> str:
+    rounded = round(value, 1)
+    if rounded.is_integer():
+        return str(int(rounded))
+    return f"{rounded:.1f}"
 
 
 def _format_number(value: float) -> str:

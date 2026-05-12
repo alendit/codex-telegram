@@ -967,13 +967,13 @@ def test_render_usage_shows_unavailable_account_limits_and_latest_tokens() -> No
     assert "<b>Reasoning</b> 10" in rendered
 
 
-def test_render_usage_shows_account_rate_limits_and_runtime_metrics() -> None:
+def test_render_usage_shows_account_limits_runtime_totals_and_context_window() -> None:
     rendered = render_usage(
         UsageState(
             conversation_name="Build status",
             backend_id="primary",
             codex_thread_attached=True,
-            token_usage={"total_tokens": 57},
+            token_usage={"total_tokens": 184261},
             runtime_metrics=RuntimeUsageMetrics(
                 total_token_usage={
                     "input_tokens": 120,
@@ -982,7 +982,7 @@ def test_render_usage_shows_account_rate_limits_and_runtime_metrics() -> None:
                     "reasoning_output_tokens": 10,
                     "total_tokens": 160,
                 },
-                last_token_usage={"total_tokens": 57},
+                last_token_usage={"total_tokens": 184261},
                 model_context_window=258400,
             ),
             account=AccountUsage(
@@ -1013,9 +1013,31 @@ def test_render_usage_shows_account_rate_limits_and_runtime_metrics() -> None:
     assert "<b>Runtime totals</b>" in rendered
     assert "<b>Total</b> 160" in rendered
     assert "<b>Input</b> 120" in rendered
-    assert "<b>Runtime last turn</b>" in rendered
+    assert "<b>Latest turn</b>" in rendered
+    assert "<b>Total</b> 184,261" in rendered
+    assert "<b>Runtime last turn</b>" not in rendered
+    assert "<b>Context window</b> 71.3% used (184k/258k)" in rendered
+
+
+def test_render_usage_keeps_distinct_runtime_last_turn() -> None:
+    rendered = render_usage(
+        UsageState(
+            conversation_name="Build status",
+            backend_id="primary",
+            codex_thread_attached=True,
+            token_usage={"total_tokens": 57},
+            runtime_metrics=RuntimeUsageMetrics(
+                last_token_usage={"total_tokens": 99},
+                model_context_window=258400,
+            ),
+            account=AccountUsage(status="available"),
+        )
+    )
+
+    assert "<b>Latest turn</b>" in rendered
     assert "<b>Total</b> 57" in rendered
-    assert "<b>Context window</b> 258,400" in rendered
+    assert "<b>Runtime last turn</b>" in rendered
+    assert "<b>Total</b> 99" in rendered
 
 
 def test_render_usage_handles_unattached_thread_without_token_usage() -> None:
