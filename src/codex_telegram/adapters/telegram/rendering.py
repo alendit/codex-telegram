@@ -47,6 +47,7 @@ CODEX_THREADS_DEFAULT_LIMIT = 3
 STATUS_CARD_ROTATION_SECONDS = 3600.0
 SENTENCE_BOUNDARY_RE = re.compile(r"[.!?](?=(?:\s|$))")
 HTML_TAG_RE = re.compile(r"<[^>]+>")
+HTML_TAG_NAME_RE = re.compile(r"</?\s*([a-zA-Z][a-zA-Z0-9]*)")
 UTC_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S UTC"
 WRAPPED_CONVERSATION_NOTICE = (
     "This conversations is wrapped up due to inactivity. "
@@ -103,10 +104,68 @@ def _telegram_delivery_text(
 ) -> tuple[str, str | None]:
     if len(text) <= TELEGRAM_MESSAGE_TEXT_LIMIT:
         return text, parse_mode
+    if parse_mode is not None and parse_mode.casefold() == "html":
+        return _truncate_telegram_html(text, TELEGRAM_MESSAGE_TEXT_LIMIT), parse_mode
     budget = TELEGRAM_MESSAGE_TEXT_LIMIT - len(TELEGRAM_TRUNCATION_NOTICE)
     if budget <= 0:
         return text[:TELEGRAM_MESSAGE_TEXT_LIMIT], None
     return text[:budget].rstrip() + TELEGRAM_TRUNCATION_NOTICE, None
+
+
+def _truncate_telegram_html(text: str, text_limit: int) -> str:
+    notice = TELEGRAM_TRUNCATION_NOTICE
+    if len(notice) >= text_limit:
+        return notice[:text_limit]
+    output: list[str] = []
+    output_len = 0
+    open_tags: list[str] = []
+    index = 0
+    while index < len(text):
+        token, next_index, open_tags_after = _next_html_token(text, index, open_tags)
+        closing_tags = _html_closing_tags(open_tags_after)
+        if output_len + len(token) + len(closing_tags) + len(notice) > text_limit:
+            break
+        output.append(token)
+        output_len += len(token)
+        open_tags = open_tags_after
+        index = next_index
+    return "".join(output) + _html_closing_tags(open_tags) + notice
+
+
+def _next_html_token(
+    text: str,
+    index: int,
+    open_tags: list[str],
+) -> tuple[str, int, list[str]]:
+    if text.startswith("<", index):
+        tag_end = text.find(">", index + 1)
+        if tag_end > index:
+            token = text[index : tag_end + 1]
+            return token, tag_end + 1, _html_tags_after_token(open_tags, token)
+    if text.startswith("&", index):
+        entity_end = text.find(";", index + 1, index + 12)
+        if entity_end > index:
+            return text[index : entity_end + 1], entity_end + 1, open_tags
+    return text[index], index + 1, open_tags
+
+
+def _html_tags_after_token(open_tags: list[str], token: str) -> list[str]:
+    match = HTML_TAG_NAME_RE.match(token)
+    if match is None:
+        return open_tags
+    tag_name = match.group(1).lower()
+    if token.startswith("</"):
+        updated = open_tags.copy()
+        if tag_name in updated:
+            updated.pop(len(updated) - 1 - updated[::-1].index(tag_name))
+        return updated
+    if token.rstrip().endswith("/>"):
+        return open_tags
+    return [*open_tags, tag_name]
+
+
+def _html_closing_tags(open_tags: list[str]) -> str:
+    return "".join(f"</{tag_name}>" for tag_name in reversed(open_tags))
 
 
 def _coalesce_progress_text(text: str, previous_text: str | None) -> str | None:

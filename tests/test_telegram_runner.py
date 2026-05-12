@@ -316,6 +316,52 @@ async def test_send_text_bounds_message_before_telegram(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_text_preserves_html_rendering_when_truncated(
+    tmp_path: Path,
+) -> None:
+    repository = SQLiteStateRepository(tmp_path / "state.db")
+    progress_store = SQLiteTelegramProgressStore(tmp_path / "state.db")
+    await repository.initialize()
+    await progress_store.initialize()
+    bot = AsyncMock()
+    runner = TelegramBotRunner(
+        bot,
+        Dispatcher(),
+        AsyncMock(),
+        repository,
+        progress_store,
+        None,
+        False,
+    )
+    objective = "no Clojure -> TypeScript dependencies; " + (
+        "migrate backend from TypeScript to Clojure; " * 120
+    )
+
+    await runner._send_text(
+        ChatContext(chat_key="chat:1", chat_id=1, topic_id=None),
+        telegram_bot_module.render_goal_status(
+            CodexGoal(
+                objective=objective,
+                status="active",
+                token_budget=None,
+                tokens_used=None,
+                elapsed_seconds=None,
+                created_at=None,
+                updated_at=None,
+            )
+        ),
+        parse_mode="HTML",
+    )
+
+    sent = bot.send_message.await_args.kwargs
+    assert sent["parse_mode"] == "HTML"
+    assert len(sent["text"]) <= TELEGRAM_MESSAGE_TEXT_LIMIT
+    assert sent["text"].count("<b>") == sent["text"].count("</b>")
+    assert "-&gt;" in sent["text"]
+    assert "truncated to fit Telegram" in sent["text"]
+
+
+@pytest.mark.asyncio
 async def test_followup_mode_command_updates_followup_mode_override(
     tmp_path: Path,
 ) -> None:
@@ -1173,6 +1219,40 @@ async def test_edit_text_with_retry_bounds_message_before_telegram(
     edited_text = bot.edit_message_text.await_args.kwargs["text"]
     assert len(edited_text) <= TELEGRAM_MESSAGE_TEXT_LIMIT
     assert "truncated to fit Telegram" in edited_text
+
+
+@pytest.mark.asyncio
+async def test_edit_text_with_retry_preserves_html_rendering_when_truncated(
+    tmp_path: Path,
+) -> None:
+    repository = SQLiteStateRepository(tmp_path / "state.db")
+    progress_store = SQLiteTelegramProgressStore(tmp_path / "state.db")
+    await repository.initialize()
+    await progress_store.initialize()
+    bot = AsyncMock()
+    runner = TelegramBotRunner(
+        bot,
+        Dispatcher(),
+        AsyncMock(),
+        repository,
+        progress_store,
+        None,
+        False,
+    )
+
+    await runner._edit_message_text_with_retry(
+        ChatContext(chat_key="chat:1", chat_id=1, topic_id=None),
+        message_id=77,
+        text="<b>Goal</b>\n<code>" + ("Clojure -> TypeScript\n" * 300) + "</code>",
+        parse_mode="HTML",
+        event_name="test_edit_throttled",
+    )
+
+    edited = bot.edit_message_text.await_args.kwargs
+    assert edited["parse_mode"] == "HTML"
+    assert len(edited["text"]) <= TELEGRAM_MESSAGE_TEXT_LIMIT
+    assert edited["text"].count("<code>") == edited["text"].count("</code>")
+    assert "truncated to fit Telegram" in edited["text"]
 
 
 @pytest.mark.asyncio
