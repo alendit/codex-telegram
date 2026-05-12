@@ -88,6 +88,11 @@ def _effective_settings(*, collaboration_mode: str = "default") -> EffectiveSett
     )
 
 
+def _button_texts(markup: object) -> list[list[str]]:
+    inline_keyboard = getattr(markup, "inline_keyboard")
+    return [[button.text for button in row] for row in inline_keyboard]
+
+
 @pytest.mark.asyncio
 async def test_typing_loop_suppresses_typing_after_thread_loses_focus(
     tmp_path: Path,
@@ -448,6 +453,46 @@ async def test_goal_command_status_renders_current_goal(tmp_path: Path) -> None:
         in bot.send_message.await_args.kwargs["text"]
     )
     assert bot.send_message.await_args.kwargs["parse_mode"] == "HTML"
+    assert _button_texts(bot.send_message.await_args.kwargs["reply_markup"]) == [
+        ["Pause", "Cancel"]
+    ]
+
+
+@pytest.mark.asyncio
+async def test_goal_command_status_renders_paused_goal_controls(
+    tmp_path: Path,
+) -> None:
+    repository = SQLiteStateRepository(tmp_path / "state.db")
+    progress_store = SQLiteTelegramProgressStore(tmp_path / "state.db")
+    await repository.initialize()
+    await progress_store.initialize()
+    service = AsyncMock()
+    service.get_goal.return_value = CodexGoal(
+        objective="Ship goal command",
+        status="paused",
+    )
+    bot = AsyncMock()
+    runner = TelegramBotRunner(
+        bot,
+        Dispatcher(),
+        service,
+        repository,
+        progress_store,
+        None,
+        False,
+    )
+
+    handled = await runner._handle_command(
+        ChatContext("chat:1", 1, None),
+        "thread-1",
+        ("goal", ""),
+        "/goal",
+    )
+
+    assert handled is True
+    assert _button_texts(bot.send_message.await_args.kwargs["reply_markup"]) == [
+        ["Resume", "Cancel"]
+    ]
 
 
 @pytest.mark.asyncio
@@ -570,6 +615,81 @@ async def test_goal_command_pause_resume_and_clear(tmp_path: Path) -> None:
     assert service.update_goal_status.await_args_list[0].args == ("chat:1", "paused")
     assert service.update_goal_status.await_args_list[1].args == ("chat:1", "active")
     service.clear_goal.assert_awaited_once_with("chat:1")
+
+
+@pytest.mark.asyncio
+async def test_goal_control_callback_updates_goal_status(tmp_path: Path) -> None:
+    repository = SQLiteStateRepository(tmp_path / "state.db")
+    progress_store = SQLiteTelegramProgressStore(tmp_path / "state.db")
+    await repository.initialize()
+    await progress_store.initialize()
+    service = AsyncMock()
+    service.update_goal_status.return_value = CodexGoal(
+        "Ship goal command",
+        status="paused",
+    )
+    bot = AsyncMock()
+    runner = TelegramBotRunner(
+        bot,
+        Dispatcher(),
+        service,
+        repository,
+        progress_store,
+        None,
+        False,
+    )
+
+    await runner._callback_actions.handle(
+        ChatContext("chat:1", 1, None),
+        CallbackToken(
+            token="token-1",
+            chat_key="chat:1",
+            topic_id=None,
+            action="goal_pause",
+            payload={},
+            expires_at="2026-05-07T00:00:00+00:00",
+        ),
+    )
+
+    service.update_goal_status.assert_awaited_once_with("chat:1", "paused")
+    assert "<b>Status</b> paused" in bot.send_message.await_args.kwargs["text"]
+    assert _button_texts(bot.send_message.await_args.kwargs["reply_markup"]) == [
+        ["Resume", "Cancel"]
+    ]
+
+
+@pytest.mark.asyncio
+async def test_goal_cancel_callback_clears_goal(tmp_path: Path) -> None:
+    repository = SQLiteStateRepository(tmp_path / "state.db")
+    progress_store = SQLiteTelegramProgressStore(tmp_path / "state.db")
+    await repository.initialize()
+    await progress_store.initialize()
+    service = AsyncMock()
+    bot = AsyncMock()
+    runner = TelegramBotRunner(
+        bot,
+        Dispatcher(),
+        service,
+        repository,
+        progress_store,
+        None,
+        False,
+    )
+
+    await runner._callback_actions.handle(
+        ChatContext("chat:1", 1, None),
+        CallbackToken(
+            token="token-1",
+            chat_key="chat:1",
+            topic_id=None,
+            action="goal_cancel",
+            payload={},
+            expires_at="2026-05-07T00:00:00+00:00",
+        ),
+    )
+
+    service.clear_goal.assert_awaited_once_with("chat:1")
+    assert bot.send_message.await_args.kwargs["text"] == "Goal canceled."
 
 
 @pytest.mark.asyncio

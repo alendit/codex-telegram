@@ -36,6 +36,7 @@ from codex_telegram.application.service import (
     TurnRunResult,
 )
 from codex_telegram.domain import (
+    CodexGoal,
     Project,
     RealtimeEvent,
     TurnUpdate,
@@ -86,6 +87,12 @@ class CommandHost(Protocol):
         reply_markup: InlineKeyboardMarkup | None = None,
         parse_mode: str | None = None,
     ) -> Message: ...
+
+    async def _goal_control_markup(
+        self,
+        context: ChatContext,
+        goal: CodexGoal | None,
+    ) -> InlineKeyboardMarkup | None: ...
 
     def _typing_loop(
         self,
@@ -503,7 +510,10 @@ class TelegramCommandExecutor:
             if not stripped or stripped.casefold() == "status":
                 goal = await host._service.get_goal(context.chat_key)
                 await host._send_text(
-                    context, render_goal_status(goal), parse_mode="HTML"
+                    context,
+                    render_goal_status(goal),
+                    reply_markup=await host._goal_control_markup(context, goal),
+                    parse_mode="HTML",
                 )
                 return True
             folded = stripped.casefold()
@@ -517,7 +527,10 @@ class TelegramCommandExecutor:
                     "paused",
                 )
                 await host._send_text(
-                    context, render_goal_status(goal), parse_mode="HTML"
+                    context,
+                    render_goal_status(goal),
+                    reply_markup=await host._goal_control_markup(context, goal),
+                    parse_mode="HTML",
                 )
                 return True
             if folded == "resume":
@@ -526,7 +539,10 @@ class TelegramCommandExecutor:
                     "active",
                 )
                 await host._send_text(
-                    context, render_goal_status(goal), parse_mode="HTML"
+                    context,
+                    render_goal_status(goal),
+                    reply_markup=await host._goal_control_markup(context, goal),
+                    parse_mode="HTML",
                 )
                 return True
 
@@ -554,7 +570,12 @@ class TelegramCommandExecutor:
         except ValueError as exc:
             await host._send_text(context, COMMAND_FAILURE_PREFIX + str(exc))
             return True
-        await host._send_text(context, render_goal_status(goal), parse_mode="HTML")
+        await host._send_text(
+            context,
+            render_goal_status(goal),
+            reply_markup=await host._goal_control_markup(context, goal),
+            parse_mode="HTML",
+        )
         return True
 
     async def _handle_plan(

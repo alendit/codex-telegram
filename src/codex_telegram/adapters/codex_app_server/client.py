@@ -569,11 +569,14 @@ class CodexAppServerClient:
         result = await self._ws_request("thread/goal/set", params)
         goal = _goal_from_get_goal_payload(result) or _goal_from_payload(result)
         if not isinstance(goal, CodexGoal):
-            goal = CodexGoal(
-                objective=objective,
-                status=status,
-                token_budget=token_budget if update_token_budget else None,
+            goal = await self.get_thread_goal(
+                codex_thread_id,
+                codex_backend_id=codex_backend_id,
             )
+            if goal is None:
+                raise CodexAppServerError(
+                    "App-server did not return a goal after setting it."
+                )
         self._set_runtime_goal(codex_thread_id, goal)
         return goal
 

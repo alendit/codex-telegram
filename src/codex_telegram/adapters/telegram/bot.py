@@ -124,6 +124,7 @@ from codex_telegram.application.service import (
 )
 from codex_telegram.domain import (
     BridgeControlJob,
+    CodexGoal,
     CodexThread,
     ConversationAnchor,
     LogicalThread,
@@ -2108,6 +2109,22 @@ class TelegramBotRunner:
         if not _has_more_codex_thread_items(visible_groups, expanded=expanded):
             return None
         return await self._callback_markup(context, [[("More", action, payload)]])
+
+    async def _goal_control_markup(
+        self,
+        context: ChatContext,
+        goal: CodexGoal | None,
+    ) -> InlineKeyboardMarkup | None:
+        if goal is None:
+            return None
+        rows: list[list[tuple[str, str, dict[str, object]]]]
+        if goal.status == "active":
+            rows = [[("Pause", "goal_pause", {}), ("Cancel", "goal_cancel", {})]]
+        elif goal.status == "paused":
+            rows = [[("Resume", "goal_resume", {}), ("Cancel", "goal_cancel", {})]]
+        else:
+            rows = [[("Cancel", "goal_cancel", {})]]
+        return await self._callback_markup(context, rows)
 
     async def _callback_markup(
         self,

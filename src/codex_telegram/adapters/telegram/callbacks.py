@@ -14,12 +14,13 @@ from codex_telegram.adapters.telegram.rendering import (
     WARNING_PREFIX,
     _user_input_complete,
     render_codex_thread_attached,
+    render_goal_status,
     render_project_state,
 )
 from codex_telegram.application.models import CallbackToken
 from codex_telegram.application.ports import StateRepository
 from codex_telegram.application.service import BotService, ThreadSelectionResult
-from codex_telegram.domain import PendingApproval, PendingUserInput
+from codex_telegram.domain import CodexGoal, PendingApproval, PendingUserInput
 from codex_telegram.observability import (
     clear_log_context,
     get_logger,
@@ -141,6 +142,12 @@ class CallbackActionHost(Protocol):
         self,
         context: ChatContext,
         rows: list[list[tuple[str, str, dict[str, object]]]],
+    ) -> InlineKeyboardMarkup | None: ...
+
+    async def _goal_control_markup(
+        self,
+        context: ChatContext,
+        goal: CodexGoal | None,
     ) -> InlineKeyboardMarkup | None: ...
 
     def _watch_turn_after_approval(
@@ -347,6 +354,28 @@ class TelegramCallbackActionExecutor:
                 else COMMAND_FAILURE_PREFIX + f"Unknown webhook {webhook_id}."
             )
             await host._send_text(context, message)
+            return
+        if token.action == "goal_pause":
+            goal = await host._service.update_goal_status(context.chat_key, "paused")
+            await host._send_text(
+                context,
+                render_goal_status(goal),
+                reply_markup=await host._goal_control_markup(context, goal),
+                parse_mode="HTML",
+            )
+            return
+        if token.action == "goal_resume":
+            goal = await host._service.update_goal_status(context.chat_key, "active")
+            await host._send_text(
+                context,
+                render_goal_status(goal),
+                reply_markup=await host._goal_control_markup(context, goal),
+                parse_mode="HTML",
+            )
+            return
+        if token.action == "goal_cancel":
+            await host._service.clear_goal(context.chat_key)
+            await host._send_text(context, "Goal canceled.")
             return
         if token.action == "user_input_select":
             await self._handle_user_input_select(

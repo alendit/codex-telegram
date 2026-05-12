@@ -1693,6 +1693,44 @@ async def test_goal_rpc_methods_use_app_server_thread_goal_api() -> None:
 
 
 @pytest.mark.asyncio
+async def test_set_thread_goal_refreshes_when_app_server_omits_goal() -> None:
+    client = CodexAppServerClient(AsyncMock(), "ws://127.0.0.1:4312", "token")
+    requests: list[tuple[str, dict[str, object]]] = []
+
+    async def fake_ws_request(
+        method: str, params: dict[str, object]
+    ) -> dict[str, object]:
+        requests.append((method, params))
+        if method == "thread/goal/set":
+            return {}
+        if method == "thread/goal/get":
+            return {"goal": {"objective": "Ship goal command", "status": "paused"}}
+        raise AssertionError(f"Unexpected method: {method}")
+
+    client._ws_request = AsyncMock(side_effect=fake_ws_request)  # type: ignore[method-assign]
+
+    goal = await client.set_thread_goal(
+        "codex-1",
+        objective="Ship goal command",
+        status="active",
+    )
+
+    assert goal == CodexGoal("Ship goal command", status="paused")
+    assert client.get_runtime_state("codex-1").goal == goal
+    assert requests == [
+        (
+            "thread/goal/set",
+            {
+                "threadId": "codex-1",
+                "objective": "Ship goal command",
+                "status": "active",
+            },
+        ),
+        ("thread/goal/get", {"threadId": "codex-1"}),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_start_turn_omits_collaboration_mode_without_explicit_override() -> None:
     client = CodexAppServerClient(AsyncMock(), "ws://127.0.0.1:4312", "token")
     requests: list[tuple[str, dict[str, object]]] = []
